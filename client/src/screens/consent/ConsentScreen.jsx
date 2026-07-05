@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
 import { PinPad } from '../../components/consent/PinPad.jsx';
@@ -158,13 +159,44 @@ export function ConsentScreen() {
 
         {/* STEP: Requester — waiting */}
         {step === 'waiting' && (
-          <div className="anim-fade-up" style={{ textAlign: 'center', paddingTop: 24 }}>
-            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--accent-bg)', border: '2px solid var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, margin: '0 auto 24px', animation: 'pulse-ring 1.5s ease infinite' }}>✅</div>
-            <div className="t-h2" style={{ marginBottom: 8 }}>Waiting for partner…</div>
-            <p className="t-body" style={{ marginBottom: 20 }}>Share this link with your partner:</p>
-            <div className="card" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, wordBreak: 'break-all', background: 'var(--bg)', marginBottom: 20 }}>
+          <div className="anim-fade-up" style={{ textAlign: 'center', paddingTop: 16 }}>
+            <div className="t-h2" style={{ marginBottom: 6 }}>Share with your partner</div>
+            <p className="t-body" style={{ marginBottom: 20 }}>Scan the QR code or copy the link below.</p>
+
+            {/* QR code */}
+            <div style={{
+              display: 'inline-flex', padding: 16, background: '#fff', borderRadius: 'var(--r-md)',
+              border: '2px solid var(--accent)', marginBottom: 16,
+            }}>
+              <QRCodeSVG
+                value={deeplink || `hookups://consent/${consentId}`}
+                size={180}
+                bgColor="#ffffff"
+                fgColor="#0E1720"
+                level="M"
+              />
+            </div>
+
+            {/* Method badge */}
+            {method && (
+              <div style={{ marginBottom: 12 }}>
+                <span className="pill pill-sky">
+                  {METHODS.find((m) => m.id === method)?.icon} {METHODS.find((m) => m.id === method)?.label}
+                </span>
+              </div>
+            )}
+
+            {/* Deeplink */}
+            <div className="card" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, wordBreak: 'break-all', background: 'var(--bg)', marginBottom: 16, textAlign: 'left' }}>
               {deeplink || `hookups://consent/${consentId}`}
             </div>
+
+            {/* Pulsing status */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse-ring 1.5s ease infinite' }} />
+              <span className="t-small">Waiting for partner to confirm…</span>
+            </div>
+
             <button className="btn btn-ghost" onClick={() => navigate('/home')}>Back to home</button>
           </div>
         )}
@@ -246,7 +278,7 @@ export function ConsentScreen() {
         )}
 
       </div>
-      <NavBar active={1} onTab={(i) => ['/home', '/consent', '/logs', '/profile'][i] && navigate(['/home', '/consent', '/logs', '/profile'][i])} />
+      <NavBar active={1} onTab={(i) => ['/home', '/consent', '/discover', '/logs', '/profile'][i] && navigate(['/home', '/consent', '/discover', '/logs', '/profile'][i])} />
     </div>
   );
 }

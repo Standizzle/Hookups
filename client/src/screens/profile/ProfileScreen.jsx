@@ -5,7 +5,7 @@ import { NavBar } from '../../components/layout/NavBar.jsx';
 export function ProfileScreen() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const nav = (i) => navigate(['/home','/consent','/logs','/profile'][i]);
+  const nav = (i) => navigate(['/home','/consent','/discover','/logs','/profile'][i]);
   return (
     <div className='phone-inner'><StatusBar />
       <div className='screen' style={{padding:'24px'}}>
@@ -20,7 +20,7 @@ export function ProfileScreen() {
           </button>
         ))}
       </div>
-      <NavBar active={3} onTab={nav} />
+      <NavBar active={4} onTab={nav} />
     </div>
   );
 }

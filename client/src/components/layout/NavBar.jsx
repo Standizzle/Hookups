@@ -2,6 +2,7 @@ export function NavBar({ active = 0, onTab }) {
   const tabs = [
     { icon: '🏠', label: 'Home' },
     { icon: '✅', label: 'Consent' },
+    { icon: '🔍', label: 'Discover' },
     { icon: '📋', label: 'Logs' },
     { icon: '👤', label: 'Profile' },
   ];
