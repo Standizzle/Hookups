@@ -1,0 +1,90 @@
+/* ═══ HOOKUPS DESIGN TOKENS — Option C: Navy + Sky (locked July 2026) ═══ */
+:root {
+  /* ── Scale ─────────────────────────────────────────── */
+  --navy-900: #040D18;
+  --navy-800: #0E1720;
+  --navy-700: #162230;
+  --navy-600: #1E2F42;
+  --navy-500: #2A4060;
+  --navy-400: #3A5578;
+
+  --sky-700:  #0369A1;
+  --sky-600:  #0284C7;
+  --sky-500:  #0EA5E9;
+  --sky-400:  #38BDF8;
+  --sky-300:  #7DD3FC;
+  --sky-200:  #BAE6FD;
+  --sky-100:  #E0F2FE;
+
+  --rose-700: #BE185D;
+  --rose-600: #DB2777;
+  --rose-500: #EC4899;
+  --rose-400: #F472B6;
+  --rose-300: #F9A8D4;
+  --rose-100: #FCE7F3;
+
+  --lime-600: #65A30D;
+  --lime-500: #84CC16;
+  --lime-400: #A3E635;
+  --lime-300: #BEF264;
+  --lime-100: #ECFCCB;
+
+  --amber:    #F59E0B;
+  --amber-bg: #1C1A06;
+  --red:      #EF4444;
+  --red-bg:   #1C0808;
+
+  /* ── Semantic aliases ──────────────────────────────── */
+  --bg:       var(--navy-800);
+  --bg1:      var(--navy-700);
+  --bg2:      var(--navy-600);
+  --bg3:      var(--navy-500);
+
+  /* Primary = sky (consent mechanics, CTAs) */
+  --accent:      var(--sky-400);
+  --accent-dark: var(--sky-600);
+  --accent-bg:   rgba(56, 189, 248, 0.10);
+  --accent-border: rgba(56, 189, 248, 0.22);
+
+  /* Secondary = rose (intimacy/relationship layer) */
+  --accent2:      var(--rose-400);
+  --accent2-dark: var(--rose-600);
+  --accent2-bg:   rgba(244, 114, 182, 0.10);
+
+  /* Sealed = lime (consent confirmed state) */
+  --sealed:      var(--lime-400);
+  --sealed-dark: var(--lime-600);
+  --sealed-bg:   rgba(163, 230, 53, 0.10);
+  --sealed-border: rgba(163, 230, 53, 0.25);
+
+  /* Text */
+  --ink:    #E0F0FF;
+  --ink2:   #8BAEC8;
+  --ink3:   #4A6580;
+
+  /* Surfaces */
+  --surface:  #FFFFFF;
+  --border:   rgba(56, 189, 248, 0.12);
+  --border2:  rgba(56, 189, 248, 0.22);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.25);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3);
+
+  /* Radii */
+  --r-xs:   6px;
+  --r-sm:   10px;
+  --r-md:   16px;
+  --r-lg:   22px;
+  --r-xl:   32px;
+  --r-full: 999px;
+
+  /* Typography */
+  --font: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', monospace;
+
+  /* Brand gradient */
+  --brand-gradient: linear-gradient(135deg, #38BDF8 0%, #F472B6 100%);
+  --sealed-gradient: linear-gradient(135deg, #A3E635 0%, #38BDF8 100%);
+}

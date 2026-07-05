@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String?   @unique
+  phone         String    @unique
+  fullName      String
+  dateOfBirth   DateTime?
+  pinHash       String
+  duressPinHash String?
+  verifiedAt    DateTime?
+  region        String    @default("ZA")
+  status        String    @default("active") // active | suspended | deleted
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
+
+  // Relations
+  consentRequests  ConsentRecord[] @relation("Requester")
+  consentConsents  ConsentRecord[] @relation("Consenter")
+  partnerLinksA    PartnerLink[]   @relation("UserA")
+  partnerLinksB    PartnerLink[]   @relation("UserB")
+  parentalAsParent ParentalLink[]  @relation("Parent")
+  parentalAsMinor  ParentalLink[]  @relation("Minor")
+  guardianContacts GuardianContact[]
+  activityLogs     ActivityLog[]
+  locationShares   LocationShare[]
+
+  @@map("users")
+}
+
+model ConsentRecord {
+  id          String   @id @default(uuid())
+  recordId    String   @unique // e.g. HKU-20260705-0001
+  requesterId String
+  consenterId String
+  requester   User     @relation("Requester", fields: [requesterId], references: [id])
+  consenter   User     @relation("Consenter", fields: [consenterId], references: [id])
+
+  // Terms
+  physicalIntimacy Boolean @default(false)
+  kissingAffection Boolean @default(false)
+  photosVideo      Boolean @default(false)
+  overnightStays   Boolean @default(false)
+  safeWord         String  @default("")
+  locationSharing  Boolean @default(false)
+
+  method    String  // nfc | airdrop | qr | manual
+  status    String  @default("pending") // pending | mutual | expired | revoked
+
+  startedAt   DateTime
+  expiresAt   DateTime
+  confirmedAt DateTime?
+  revokedAt   DateTime?
+  revokedBy   String?
+  revokeReason String?
+
+  // Metadata
+  lat         Float?
+  lng         Float?
+  placeName   String?
+  ipHashA     String?
+  ipHashB     String?
+  deviceA     String? // JSON fingerprint
+  deviceB     String? // JSON fingerprint
+
+  // Tamper evidence
+  signature   String?
+  chainPrev   String?
+  chainHash   String?
+
+  locationShares LocationShare[]
+  activityLogs   ActivityLog[]
+
+  createdAt DateTime @default(now())
+
+  @@map("consent_records")
+}
+
+model LocationShare {
+  id        String   @id @default(uuid())
+  recordId  String
+  userId    String
+  record    ConsentRecord @relation(fields: [recordId], references: [id])
+  user      User          @relation(fields: [userId], references: [id])
+
+  precision String   @default("exact") // exact | block
+  active    Boolean  @default(true)
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+
+  lastLat  Float?
+  lastLng  Float?
+  lastAcc  Float?
+  lastPing DateTime?
+
+  @@unique([recordId, userId])
+  @@map("location_shares")
+}
+
+model PartnerLink {
+  id           String    @id @default(uuid())
+  linkId       String    @unique
+  userAId      String
+  userBId      String
+  userA        User      @relation("UserA", fields: [userAId], references: [id])
+  userB        User      @relation("UserB", fields: [userBId], references: [id])
+  status       String    @default("pending") // pending | active | unlinked
+  sealedAt     DateTime?
+  unlinkedAt   DateTime?
+  unlinkedById String?
+  cooldownUntil DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("partner_links")
+}
+
+model ParentalLink {
+  id                   String   @id @default(uuid())
+  parentId             String
+  minorId              String
+  parent               User     @relation("Parent", fields: [parentId], references: [id])
+  minor                User     @relation("Minor", fields: [minorId], references: [id])
+  permittedLevel       Int      @default(2) // 1-5
+  locationAlerts       Boolean  @default(true)
+  autoCheckIn          Boolean  @default(true)
+  checkInWindowMinutes Int      @default(10)
+  status               String   @default("pending") // pending | active | expired
+  verifiedAt           DateTime?
+  createdAt            DateTime @default(now())
+
+  @@unique([parentId, minorId])
+  @@map("parental_links")
+}
+
+model GuardianContact {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  phone     String
+  relation  String   // parent | sibling | friend | partner | other
+  isPrimary Boolean  @default(false)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("guardian_contacts")
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  recordId  String?
+  record    ConsentRecord? @relation(fields: [recordId], references: [id])
+  type      String   // registration | consent_request | consent_confirmed | consent_revoked | link | unlink | duress_pin_set | parent_link | alert_sent
+  title     String
+  actor     String
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@map("activity_logs")
+}
+
+model AlertEvent {
+  id                 String   @id @default(uuid())
+  userId             String
+  type               String   // duress | silent_checkin | come_get_me | emergency | missed_checkin
+  triggeredAt        DateTime @default(now())
+  lat                Float?
+  lng                Float?
+  resolvedAt         DateTime?
+  notifiedContactIds String[] // array of GuardianContact ids
+
+  @@map("alert_events")
+}
