@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
 import { PinPad } from '../../components/consent/PinPad.jsx';
 import { consentService } from '../../services/consent.js';
+import { usersService } from '../../services/users.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
 const METHODS = [
@@ -25,6 +26,9 @@ export function ConsentScreen() {
   const [role,   setRole]   = useState(incomingId ? 'consenter' : null); // null | requester | consenter
   const [step,   setStep]   = useState(incomingId ? 'disclosure' : 'role');
   const [method, setMethod] = useState(null);
+  const [partnerPhone, setPartnerPhone] = useState('');
+  const [partner,      setPartner]      = useState(null);
+  const [partnerError, setPartnerError] = useState('');
   const [terms,  setTerms]  = useState({
     physicalIntimacy: false, kissingAffection: false,
     photosVideo: false, overnightStays: false,
@@ -37,14 +41,32 @@ export function ConsentScreen() {
   const [result,     setResult]     = useState(null);
   const [loading,    setLoading]    = useState(false);
 
+  // Deeplink/QR entry (hookups://consent/<id>) — fetch disclosure immediately
+  useEffect(() => {
+    if (incomingId) loadDisclosure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingId]);
+
   // ── Requester flow ──────────────────────────────────────────────────────────
+  async function findPartner() {
+    setLoading(true);
+    setPartnerError('');
+    try {
+      const found = await usersService.lookupByPhone(partnerPhone.trim());
+      setPartner(found);
+      setStep('terms');
+    } catch (err) {
+      setPartnerError(err.message ?? 'No matching user found');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function createConsent() {
     setLoading(true);
     try {
-      // Demo: use a placeholder partner ID
-      const partnerId = 'demo-partner-id';
       const data = await consentService.request({
-        consenterId: partnerId,
+        consenterId: partner.id,
         method,
         terms,
         expiresInMinutes: 60,
@@ -100,7 +122,7 @@ export function ConsentScreen() {
             <p className="t-body" style={{ marginBottom: 24 }}>Who are you in this request?</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <button className="card" style={{ border: '1px solid var(--accent-border)', cursor: 'pointer', textAlign: 'left' }}
-                onClick={() => { setRole('requester'); setStep('terms'); }}>
+                onClick={() => { setRole('requester'); setStep('partner'); }}>
                 <div style={{ fontWeight: 800, marginBottom: 4 }}>🙋 I'm Requesting</div>
                 <p className="t-small">You're initiating — you'll share a QR/NFC/AirDrop link for your partner to confirm.</p>
               </button>
@@ -113,10 +135,36 @@ export function ConsentScreen() {
           </div>
         )}
 
+        {/* STEP: Requester — find partner */}
+        {step === 'partner' && (
+          <div className="anim-fade-up">
+            <div className="t-h2" style={{ marginBottom: 6 }}>Who's this with?</div>
+            <p className="t-body" style={{ marginBottom: 16 }}>Enter your partner's mobile number — they need an existing Hookups account.</p>
+            <input
+              className="input-field"
+              type="tel"
+              placeholder="+27 82 123 4567"
+              value={partnerPhone}
+              onChange={(e) => setPartnerPhone(e.target.value)}
+              autoFocus
+            />
+            {partnerError && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 8 }}>{partnerError}</p>}
+            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={findPartner} disabled={!partnerPhone.trim() || loading}>
+              {loading ? 'Looking up…' : 'Find partner →'}
+            </button>
+          </div>
+        )}
+
         {/* STEP: Requester — set terms */}
         {step === 'terms' && (
           <div className="anim-fade-up">
-            <div className="t-h2" style={{ marginBottom: 16 }}>Terms of this consent</div>
+            <div className="t-h2" style={{ marginBottom: 4 }}>Terms of this consent</div>
+            {partner && (
+              <p className="t-body" style={{ marginBottom: 16 }}>
+                With <strong style={{ color: 'var(--ink)' }}>{partner.fullName}</strong>
+                {partner.verified && <span className="pill pill-sky" style={{ marginLeft: 6 }}>✓ Verified</span>}
+              </p>
+            )}
             {[
               { key: 'kissingAffection',  label: 'Kissing & Affection' },
               { key: 'physicalIntimacy',  label: 'Physical Intimacy' },

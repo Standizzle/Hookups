@@ -3,6 +3,20 @@ import { authenticate } from '../middleware/authenticate.js';
 
 export default async function userRoutes(fastify) {
 
+  fastify.get('/lookup', { preHandler: authenticate }, async (req, reply) => {
+    const phone = (req.query.phone ?? '').trim();
+    if (!phone) return reply.status(400).send({ error: 'phone query param required' });
+
+    const user = await prisma.user.findUnique({
+      where: { phone },
+      select: { id: true, fullName: true, verifiedAt: true, status: true },
+    });
+    if (!user || user.status !== 'active' || user.id === req.userId) {
+      return reply.status(404).send({ error: 'No matching user found' });
+    }
+    return { id: user.id, fullName: user.fullName, verified: !!user.verifiedAt };
+  });
+
   fastify.get('/me', { preHandler: authenticate }, async (req) => {
     return prisma.user.findUnique({
       where: { id: req.userId },

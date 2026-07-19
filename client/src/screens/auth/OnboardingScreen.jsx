@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { PinPad } from '../../components/consent/PinPad.jsx';
 import { authService } from '../../services/auth.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const STEPS = ['name', 'phone', 'otp', 'pin', 'duress', 'done'];
 
 export function OnboardingScreen() {
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
   const [step,    setStep]    = useState('name');
   const [name,    setName]    = useState('');
   const [phone,   setPhone]   = useState('');
@@ -58,6 +60,7 @@ export function OnboardingScreen() {
     setLoading(true);
     try {
       await authService.setPIN({ pin, duressPin: pinValue });
+      await refreshUser();
       goNext();
     } catch (err) {
       reset();
@@ -71,6 +74,7 @@ export function OnboardingScreen() {
     setLoading(true);
     try {
       await authService.setPIN({ pin });
+      await refreshUser();
       goNext();
     } catch (err) {
       setError(err.message);
