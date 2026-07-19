@@ -64,6 +64,7 @@ export function canonicalConsentJSON(record) {
       photosVideo:      record.photosVideo,
       overnightStays:   record.overnightStays,
       safeWord:         record.safeWord,
+      locationRequested: record.locationRequested,
       locationSharing:  record.locationSharing,
     },
     method:      record.method,

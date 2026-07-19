@@ -81,7 +81,7 @@ export default async function consentRoutes(fastify) {
         photosVideo:      record.photosVideo,
         overnightStays:   record.overnightStays,
         safeWord:         record.safeWord,
-        locationSharing:  record.locationSharing,
+        locationSharing:  record.locationRequested,
       },
       method:    record.method,
       expiresAt: record.expiresAt,

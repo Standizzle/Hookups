@@ -30,6 +30,7 @@ export async function createConsentRequest({ requesterId, consenterId, terms, me
       photosVideo:      terms.photosVideo ?? false,
       overnightStays:   terms.overnightStays ?? false,
       safeWord:         terms.safeWord ?? '',
+      locationRequested: terms.locationSharing ?? false,
       locationSharing:  false, // only true when BOTH confirm it
     },
   });
@@ -64,7 +65,7 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
     data: {
       status:         'mutual',
       confirmedAt:    now,
-      locationSharing: agreedToLocation ?? false,
+      locationSharing: record.locationRequested && (agreedToLocation ?? false),
       ipHashB:        ipB ? hashIP(ipB) : null,
       chainPrev:      prev?.chainHash ?? null,
     },
