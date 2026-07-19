@@ -15,8 +15,12 @@ export function clearToken() {
 
 async function request(method, path, body) {
   const token = getToken();
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  // Fastify's JSON body parser rejects a request that declares
+  // application/json but sends no body at all — only set the header
+  // (and a body) when there's actually a body to send.
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
 
   const res = await fetch(`${BASE}${path}`, {
     method,

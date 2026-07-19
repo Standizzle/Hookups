@@ -19,6 +19,13 @@ export default async function parentalRoutes(fastify) {
     if (!minor) return reply.status(404).send({ error: 'User not found' });
     if (minor.id === req.userId) return reply.status(400).send({ error: 'Cannot link to yourself' });
 
+    const existing = await prisma.parentalLink.findUnique({
+      where: { parentId_minorId: { parentId: req.userId, minorId: minor.id } },
+    });
+    if (existing) {
+      return reply.status(409).send({ error: `A link with this account is already ${existing.status}`, status: existing.status });
+    }
+
     const link = await prisma.parentalLink.create({
       data: { parentId: req.userId, minorId: minor.id, status: 'pending' },
     });
@@ -49,14 +56,18 @@ export default async function parentalRoutes(fastify) {
   });
 
   fastify.get('/my-links', { preHandler: authenticate }, async (req) => {
+    // Include pending links too — a minor needs to see & accept a request
+    // that hasn't been actioned yet, not just already-active ones.
     const [asParent, asMinor] = await Promise.all([
       prisma.parentalLink.findMany({
-        where: { parentId: req.userId, status: 'active' },
+        where: { parentId: req.userId, status: { in: ['pending', 'active'] } },
         include: { minor: { select: { id: true, fullName: true, phone: true } } },
+        orderBy: { createdAt: 'desc' },
       }),
       prisma.parentalLink.findMany({
-        where: { minorId: req.userId, status: 'active' },
+        where: { minorId: req.userId, status: { in: ['pending', 'active'] } },
         include: { parent: { select: { id: true, fullName: true, phone: true } } },
+        orderBy: { createdAt: 'desc' },
       }),
     ]);
     return { asParent, asMinor };

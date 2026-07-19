@@ -7,4 +7,10 @@ export const parentalService = {
   async myLinks() {
     return api.get('/parental/my-links');
   },
+  async accept(id) {
+    return api.post(`/parental/${id}/accept`);
+  },
+  async updateSettings(id, settings) {
+    return api.patch(`/parental/${id}`, settings);
+  },
 };

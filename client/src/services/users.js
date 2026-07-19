@@ -13,6 +13,9 @@ export const usersService = {
   async updateLocation(lat, lng) {
     return api.post('/users/me/location', { lat, lng });
   },
+  async setDob(dateOfBirth) {
+    return api.patch('/users/me/dob', { dateOfBirth });
+  },
   async uploadAvatar(file) {
     const form = new FormData();
     form.append('file', file);

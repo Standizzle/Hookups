@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { prisma } from '../db/client.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { StorageService } from '../services/StorageService.js';
+import { calculateAge, isMinor } from '../utils/age.js';
 import { z } from 'zod';
 
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
@@ -17,6 +18,12 @@ const ProfileSchema = z.object({
 const LocationSchema = z.object({
   lat: z.number(),
   lng: z.number(),
+});
+
+const DobSchema = z.object({
+  dateOfBirth: z.coerce.date()
+    .refine((d) => d <= new Date(), 'Date of birth cannot be in the future')
+    .refine((d) => calculateAge(d) < 120, 'That date of birth looks incorrect'),
 });
 
 const PROFILE_SELECT = {
@@ -55,14 +62,27 @@ export default async function userRoutes(fastify) {
   });
 
   fastify.get('/me', { preHandler: authenticate }, async (req) => {
-    return prisma.user.findUnique({
+    const user = await prisma.user.findUnique({
       where: { id: req.userId },
       select: {
         id: true, fullName: true, phone: true, email: true, verifiedAt: true, createdAt: true, region: true,
         username: true, university: true, bio: true, avatarUrl: true, interests: true, discoverable: true,
-        lastLat: true, lastLng: true, lastLocatedAt: true,
+        lastLat: true, lastLng: true, lastLocatedAt: true, dateOfBirth: true,
       },
     });
+    return { ...user, isMinor: isMinor(user.dateOfBirth) };
+  });
+
+  // Age gate: record date of birth (once set, drives minor/adult gating everywhere)
+  fastify.patch('/me/dob', { preHandler: authenticate }, async (req, reply) => {
+    const body = DobSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+
+    await prisma.user.update({ where: { id: req.userId }, data: { dateOfBirth: body.data.dateOfBirth } });
+    await prisma.activityLog.create({
+      data: { userId: req.userId, type: 'age_verified', title: 'Date of birth confirmed', actor: 'You', metadata: {} },
+    });
+    return { isMinor: isMinor(body.data.dateOfBirth) };
   });
 
   fastify.patch('/me', { preHandler: authenticate }, async (req, reply) => {

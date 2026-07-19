@@ -2,6 +2,7 @@ import { prisma } from '../db/client.js';
 import { hashPIN, verifyPIN, isValidPIN, pinsAreEqual } from '../services/PINService.js';
 import { SMSService } from '../services/SMSService.js';
 import { redis } from '../db/client.js';
+import { isMinor } from '../utils/age.js';
 import { z } from 'zod';
 
 const SignupSchema = z.object({
@@ -139,9 +140,9 @@ export default async function authRoutes(fastify) {
         id: true, fullName: true, phone: true, email: true,
         verifiedAt: true, createdAt: true, region: true,
         username: true, university: true, bio: true, avatarUrl: true, interests: true, discoverable: true,
-        lastLat: true, lastLng: true, lastLocatedAt: true,
+        lastLat: true, lastLng: true, lastLocatedAt: true, dateOfBirth: true,
       },
     });
-    return user;
+    return { ...user, isMinor: isMinor(user.dateOfBirth) };
   });
 }
