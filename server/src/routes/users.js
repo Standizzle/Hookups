@@ -1,5 +1,19 @@
 import { prisma } from '../db/client.js';
 import { authenticate } from '../middleware/authenticate.js';
+import { z } from 'zod';
+
+const ProfileSchema = z.object({
+  university:   z.string().max(80).optional(),
+  bio:          z.string().max(280).optional(),
+  avatarEmoji:  z.string().max(8).optional(),
+  interests:    z.array(z.string().max(30)).max(20).optional(),
+  discoverable: z.boolean().optional(),
+});
+
+const LocationSchema = z.object({
+  lat: z.number(),
+  lng: z.number(),
+});
 
 export default async function userRoutes(fastify) {
 
@@ -20,7 +34,11 @@ export default async function userRoutes(fastify) {
   fastify.get('/me', { preHandler: authenticate }, async (req) => {
     return prisma.user.findUnique({
       where: { id: req.userId },
-      select: { id: true, fullName: true, phone: true, email: true, verifiedAt: true, createdAt: true, region: true },
+      select: {
+        id: true, fullName: true, phone: true, email: true, verifiedAt: true, createdAt: true, region: true,
+        university: true, bio: true, avatarEmoji: true, interests: true, discoverable: true,
+        lastLat: true, lastLng: true, lastLocatedAt: true,
+      },
     });
   });
 
@@ -29,6 +47,33 @@ export default async function userRoutes(fastify) {
     const data = Object.fromEntries(Object.entries(req.body ?? {}).filter(([k]) => allowed.includes(k)));
     if (!Object.keys(data).length) return reply.status(400).send({ error: 'No updatable fields provided' });
     return prisma.user.update({ where: { id: req.userId }, data });
+  });
+
+  // Discovery profile (university, bio, interests, discoverable, avatar)
+  fastify.patch('/me/profile', { preHandler: authenticate }, async (req, reply) => {
+    const body = ProfileSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    if (!Object.keys(body.data).length) return reply.status(400).send({ error: 'No updatable fields provided' });
+
+    return prisma.user.update({
+      where: { id: req.userId },
+      data: body.data,
+      select: {
+        id: true, university: true, bio: true, avatarEmoji: true, interests: true, discoverable: true,
+      },
+    });
+  });
+
+  // One-shot location capture for discovery (not continuous tracking)
+  fastify.post('/me/location', { preHandler: authenticate }, async (req, reply) => {
+    const body = LocationSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+
+    await prisma.user.update({
+      where: { id: req.userId },
+      data: { lastLat: body.data.lat, lastLng: body.data.lng, lastLocatedAt: new Date() },
+    });
+    return { ok: true };
   });
 
   fastify.delete('/me', { preHandler: authenticate }, async (req, reply) => {

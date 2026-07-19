@@ -14,6 +14,8 @@ import guardianRoutes from './src/routes/guardian.js';
 import parentalRoutes from './src/routes/parental.js';
 import alertRoutes from './src/routes/alerts.js';
 import locationRoutes from './src/routes/location.js';
+import discoverRoutes from './src/routes/discover.js';
+import meetupRoutes from './src/routes/meetups.js';
 import { registerLocationSocket } from './src/socket/locationHandler.js';
 
 const PORT = process.env.PORT || 3001;
@@ -60,6 +62,8 @@ await fastify.register(guardianRoutes, { prefix: '/guardian' });
 await fastify.register(parentalRoutes, { prefix: '/parental' });
 await fastify.register(alertRoutes,    { prefix: '/alerts' });
 await fastify.register(locationRoutes, { prefix: '/location' });
+await fastify.register(discoverRoutes, { prefix: '/discover' });
+await fastify.register(meetupRoutes,   { prefix: '/meetups' });
 
 fastify.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }));
 

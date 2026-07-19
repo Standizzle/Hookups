@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
@@ -19,15 +19,18 @@ export function ConsentScreen() {
   const { user }  = useAuth();
   const navigate  = useNavigate();
   const [params]  = useSearchParams();
+  const routerLocation = useLocation();
 
   // If coming from a deeplink: hookups://consent/<id>
   const incomingId = params.get('id');
+  // If coming from Discovery/Matchups with a partner already chosen (no phone lookup needed)
+  const preselectedPartner = routerLocation.state?.partner ?? null;
 
-  const [role,   setRole]   = useState(incomingId ? 'consenter' : null); // null | requester | consenter
-  const [step,   setStep]   = useState(incomingId ? 'disclosure' : 'role');
+  const [role,   setRole]   = useState(incomingId ? 'consenter' : (preselectedPartner ? 'requester' : null));
+  const [step,   setStep]   = useState(incomingId ? 'disclosure' : (preselectedPartner ? 'terms' : 'role'));
   const [method, setMethod] = useState(null);
   const [partnerPhone, setPartnerPhone] = useState('');
-  const [partner,      setPartner]      = useState(null);
+  const [partner,      setPartner]      = useState(preselectedPartner);
   const [partnerError, setPartnerError] = useState('');
   const [terms,  setTerms]  = useState({
     physicalIntimacy: false, kissingAffection: false,

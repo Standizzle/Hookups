@@ -21,6 +21,16 @@ model User {
   createdAt     DateTime  @default(now())
   deletedAt     DateTime?
 
+  // Discovery profile
+  university    String?
+  bio           String?
+  avatarEmoji   String?
+  interests     String[] @default([])
+  discoverable  Boolean  @default(false)
+  lastLat       Float?
+  lastLng       Float?
+  lastLocatedAt DateTime?
+
   // Relations
   consentRequests  ConsentRecord[] @relation("Requester")
   consentConsents  ConsentRecord[] @relation("Consenter")
@@ -31,8 +41,41 @@ model User {
   guardianContacts GuardianContact[]
   activityLogs     ActivityLog[]
   locationShares   LocationShare[]
+  matchesSent      Match[]  @relation("MatchFrom")
+  matchesReceived  Match[]  @relation("MatchTo")
+  meetupsProposed  Meetup[] @relation("MeetupProposer")
+  meetupsReceived  Meetup[] @relation("MeetupPartner")
 
   @@map("users")
+}
+
+model Match {
+  id           String    @id @default(uuid())
+  fromId       String
+  toId         String
+  from         User      @relation("MatchFrom", fields: [fromId], references: [id])
+  to           User      @relation("MatchTo", fields: [toId], references: [id])
+  status       String    @default("pending") // pending | matched | declined
+  createdAt    DateTime  @default(now())
+  respondedAt  DateTime?
+
+  @@unique([fromId, toId])
+  @@map("matches")
+}
+
+model Meetup {
+  id          String    @id @default(uuid())
+  proposerId  String
+  partnerId   String
+  proposer    User      @relation("MeetupProposer", fields: [proposerId], references: [id])
+  partner     User      @relation("MeetupPartner", fields: [partnerId], references: [id])
+  place       String
+  scheduledAt DateTime
+  status      String    @default("pending") // pending | confirmed | declined | cancelled
+  createdAt   DateTime  @default(now())
+  confirmedAt DateTime?
+
+  @@map("meetups")
 }
 
 model ConsentRecord {
