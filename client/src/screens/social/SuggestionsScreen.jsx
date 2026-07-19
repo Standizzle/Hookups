@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
 import { discoverService } from '../../services/discover.js';
 
 const NAV = ['/home', '/consent', '/discover', '/logs', '/profile'];
@@ -105,8 +106,8 @@ export function SuggestionsScreen() {
               <p className="t-label" style={{ marginBottom: 10 }}>Connection requests sent</p>
               {pool.filter((p) => sent.includes(p.id)).map((p) => (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <span style={{ fontSize: 20 }}>{p.avatarEmoji ?? '🙂'}</span>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
+                  <Avatar avatarUrl={p.avatarUrl} seed={p.id} label={p.handle} size={28} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{p.handle}</span>
                   <span className="pill pill-sealed" style={{ marginLeft: 'auto', fontSize: 10 }}>Sent</span>
                 </div>
               ))}
@@ -135,15 +136,9 @@ export function SuggestionsScreen() {
         {/* Hero card */}
         <div className="card" style={{ marginBottom: 16, border: '1px solid rgba(56,189,248,0.25)', background: 'var(--bg2)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-            <div style={{
-              width: 72, height: 72, borderRadius: '50%', fontSize: 36,
-              background: 'var(--bg)', border: '2px solid var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              {current.avatarEmoji ?? '🙂'}
-            </div>
+            <Avatar avatarUrl={current.avatarUrl} seed={current.id} label={current.handle} size={72} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 2 }}>{current.name}</div>
+              <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 2 }}>{current.handle}</div>
               <div style={{ fontSize: 13, color: 'var(--ink2)' }}>{current.university ?? 'No university set'}</div>
             </div>
             <ScoreRing value={current.compatibility} />

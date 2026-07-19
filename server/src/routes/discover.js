@@ -54,7 +54,8 @@ export default async function discoverRoutes(fastify) {
         id: { notIn: [...excludeIds] },
       },
       select: {
-        id: true, fullName: true, university: true, bio: true, avatarEmoji: true,
+        // No fullName here — pre-match, only the handle identifies you.
+        id: true, username: true, university: true, bio: true, avatarUrl: true,
         interests: true, verifiedAt: true, lastLat: true, lastLng: true, dateOfBirth: true,
       },
       take: 50,
@@ -68,10 +69,10 @@ export default async function discoverRoutes(fastify) {
       }
       return {
         id: c.id,
-        name: c.fullName,
+        handle: c.username ? `@${c.username}` : null,
         university: c.university,
         bio: c.bio,
-        avatarEmoji: c.avatarEmoji,
+        avatarUrl: c.avatarUrl,
         interests: c.interests,
         verified: !!c.verifiedAt,
         distanceKm,
@@ -135,8 +136,8 @@ export default async function discoverRoutes(fastify) {
         status: { in: ['pending', 'matched'] },
       },
       include: {
-        from: { select: { id: true, fullName: true, university: true, avatarEmoji: true, interests: true, verifiedAt: true } },
-        to:   { select: { id: true, fullName: true, university: true, avatarEmoji: true, interests: true, verifiedAt: true } },
+        from: { select: { id: true, fullName: true, username: true, university: true, avatarUrl: true, interests: true, verifiedAt: true } },
+        to:   { select: { id: true, fullName: true, username: true, university: true, avatarUrl: true, interests: true, verifiedAt: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -157,8 +158,12 @@ export default async function discoverRoutes(fastify) {
         // 'pending' from my side means I'm waiting on them; if they sent it, it's awaiting my response
         direction: iAmSender ? 'sent' : 'received',
         partner: {
-          id: partner.id, name: partner.fullName, university: partner.university,
-          avatarEmoji: partner.avatarEmoji, verified: !!partner.verifiedAt,
+          id: partner.id,
+          // Real name stays hidden until it's an actual mutual match — a one-sided
+          // pending request shouldn't unmask someone who hasn't matched back yet.
+          name: m.status === 'matched' ? partner.fullName : null,
+          handle: partner.username ? `@${partner.username}` : null,
+          university: partner.university, avatarUrl: partner.avatarUrl, verified: !!partner.verifiedAt,
         },
         compatibility: score,
         sharedInterests: shared,

@@ -37,9 +37,28 @@ async function request(method, path, body) {
   return data;
 }
 
+async function requestForm(method, path, formData) {
+  const token = getToken();
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE}${path}`, { method, headers, body: formData });
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const err = new Error(data.error ?? `HTTP ${res.status}`);
+    err.code   = data.code;
+    err.status = res.status;
+    err.body   = data;
+    throw err;
+  }
+  return data;
+}
+
 export const api = {
   get:    (path)        => request('GET',    path),
   post:   (path, body)  => request('POST',   path, body),
   patch:  (path, body)  => request('PATCH',  path, body),
   delete: (path)        => request('DELETE', path),
+  postForm: (path, formData) => requestForm('POST', path, formData),
 };

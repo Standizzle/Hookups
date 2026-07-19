@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
 import { PinPad } from '../../components/consent/PinPad.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
 import { meetupsService } from '../../services/meetups.js';
 import { discoverService } from '../../services/discover.js';
 
@@ -152,13 +153,7 @@ export function MeetupsScreen() {
             {!loading && meetups.map((m) => (
               <div key={m.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: '50%', fontSize: 20,
-                    background: 'var(--bg)', border: '1.5px solid var(--border2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {m.partner.avatarEmoji ?? '🙂'}
-                  </div>
+                  <Avatar avatarUrl={m.partner.avatarUrl} seed={m.partner.id} label={m.partner.fullName} size={40} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>with {m.partner.fullName}</div>
                     <div style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 2 }}>📍 {m.place}</div>
@@ -198,7 +193,7 @@ export function MeetupsScreen() {
                 onClick={() => { setPartner(p); setStep('propose-place'); }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 24 }}>{p.avatarEmoji ?? '🙂'}</span>
+                  <Avatar avatarUrl={p.avatarUrl} seed={p.id} label={p.name} size={40} />
                   <span style={{ fontWeight: 700 }}>{p.name}</span>
                 </div>
               </button>

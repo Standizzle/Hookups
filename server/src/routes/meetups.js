@@ -52,8 +52,8 @@ export default async function meetupRoutes(fastify) {
     const meetups = await prisma.meetup.findMany({
       where: { OR: [{ proposerId: req.userId }, { partnerId: req.userId }] },
       include: {
-        proposer: { select: { id: true, fullName: true, avatarEmoji: true } },
-        partner:  { select: { id: true, fullName: true, avatarEmoji: true } },
+        proposer: { select: { id: true, fullName: true, username: true, avatarUrl: true } },
+        partner:  { select: { id: true, fullName: true, username: true, avatarUrl: true } },
       },
       orderBy: { scheduledAt: 'asc' },
     });

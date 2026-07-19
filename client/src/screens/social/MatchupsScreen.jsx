@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
 import { discoverService } from '../../services/discover.js';
 
 const NAV = ['/home', '/consent', '/discover', '/logs', '/profile'];
@@ -39,6 +40,10 @@ export function MatchupsScreen() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(null);
 
+  async function loadMatches() {
+    setMatches(await discoverService.matches());
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -59,11 +64,9 @@ export function MatchupsScreen() {
       const res = await discoverService.action(person.id, action);
       setSuggested((prev) => prev.filter((p) => p.id !== person.id));
       if (res.matched) {
-        setMatches((prev) => [{
-          id: person.id, status: 'matched', direction: 'sent',
-          partner: { id: person.id, name: person.name, university: person.university, avatarEmoji: person.avatarEmoji, verified: person.verified },
-          compatibility: person.compatibility, sharedInterests: person.sharedInterests, createdAt: new Date().toISOString(),
-        }, ...prev.filter((m) => m.partner.id !== person.id)]);
+        // Refetch rather than splice client-side — a match reveals the
+        // partner's real name server-side, which we don't have locally.
+        await loadMatches();
       }
     } catch (err) {
       setError(err.message);
@@ -109,21 +112,17 @@ export function MatchupsScreen() {
             {matches.map((m) => (
               <div key={m.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', fontSize: 22,
-                    background: 'var(--bg)', border: '1.5px solid var(--border2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {m.partner.avatarEmoji ?? '🙂'}
-                  </div>
+                  <Avatar avatarUrl={m.partner.avatarUrl} seed={m.partner.id} label={m.partner.name ?? m.partner.handle} size={44} />
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{m.partner.name}</span>
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{m.partner.name ?? m.partner.handle}</span>
                       <span className={`pill ${m.status === 'matched' ? 'pill-sealed' : 'pill-pending'}`}>
                         {m.status === 'matched' ? '✓ Matched' : m.direction === 'received' ? '⏳ Wants to match' : '⏳ Pending'}
                       </span>
                     </div>
-                    <span className="t-small">{m.partner.university} · {timeAgo(m.createdAt)}</span>
+                    <span className="t-small">
+                      {m.partner.name && m.partner.handle ? `${m.partner.handle} · ` : ''}{m.partner.university} · {timeAgo(m.createdAt)}
+                    </span>
                   </div>
                 </div>
                 <CompatBar value={m.compatibility} />
@@ -148,7 +147,7 @@ export function MatchupsScreen() {
                   <button
                     className="btn btn-primary btn-sm"
                     style={{ marginTop: 12 }}
-                    onClick={() => act({ id: m.partner.id, name: m.partner.name, university: m.partner.university, avatarEmoji: m.partner.avatarEmoji, verified: m.partner.verified, compatibility: m.compatibility, sharedInterests: m.sharedInterests }, 'connect')}
+                    onClick={() => act({ id: m.partner.id }, 'connect')}
                   >
                     💫 Match back
                   </button>
@@ -167,15 +166,9 @@ export function MatchupsScreen() {
             {suggested.map((s) => (
               <div key={s.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', fontSize: 22,
-                    background: 'var(--bg)', border: '1.5px solid var(--border2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {s.avatarEmoji ?? '🙂'}
-                  </div>
+                  <Avatar avatarUrl={s.avatarUrl} seed={s.id} label={s.handle} size={44} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.handle}</div>
                     <span className="t-small">{s.university}</span>
                   </div>
                 </div>

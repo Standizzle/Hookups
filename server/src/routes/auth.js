@@ -138,7 +138,7 @@ export default async function authRoutes(fastify) {
       select: {
         id: true, fullName: true, phone: true, email: true,
         verifiedAt: true, createdAt: true, region: true,
-        university: true, bio: true, avatarEmoji: true, interests: true, discoverable: true,
+        username: true, university: true, bio: true, avatarUrl: true, interests: true, discoverable: true,
         lastLat: true, lastLng: true, lastLocatedAt: true,
       },
     });

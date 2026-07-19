@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
 import { discoverService } from '../../services/discover.js';
 
 const NAV = ['/home', '/consent', '/discover', '/logs', '/profile'];
@@ -65,15 +66,10 @@ export function LookupsScreen() {
             ← Back
           </button>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{
-              width: 80, height: 80, borderRadius: '50%', fontSize: 40,
-              background: 'var(--bg2)', border: '2px solid var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 12px',
-            }}>
-              {selected.avatarEmoji ?? '🙂'}
+            <div style={{ margin: '0 auto 12px', width: 80 }}>
+              <Avatar avatarUrl={selected.avatarUrl} seed={selected.id} label={selected.handle} size={80} />
             </div>
-            <div className="t-h2">{selected.name}</div>
+            <div className="t-h2">{selected.handle}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}>
               <span className="t-small">{selected.university}</span>
               {selected.verified && <span className="pill pill-sky">✓ Verified</span>}
@@ -169,16 +165,10 @@ export function LookupsScreen() {
             onClick={() => setSelected(p)}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: '50%', fontSize: 24,
-                background: 'var(--bg)', border: '1.5px solid var(--border2)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              }}>
-                {p.avatarEmoji ?? '🙂'}
-              </div>
+              <Avatar avatarUrl={p.avatarUrl} seed={p.id} label={p.handle} size={48} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</span>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{p.handle}</span>
                   {p.verified && <span className="pill pill-sky" style={{ fontSize: 10 }}>✓</span>}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink3)', marginBottom: 4 }}>

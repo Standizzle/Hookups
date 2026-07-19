@@ -1,7 +1,10 @@
 import 'dotenv/config';
+import path from 'node:path';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import rateLimit from '@fastify/rate-limit';
 import { Server as SocketIO } from 'socket.io';
 import { redis } from './src/db/client.js';
@@ -42,6 +45,16 @@ await fastify.register(rateLimit, {
     error: 'Too Many Requests',
     message: 'Slow down — too many requests.',
   }),
+});
+
+await fastify.register(multipart, {
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+});
+
+// Serves locally-stored avatar uploads — see StorageService (swap for S3/R2 in prod)
+await fastify.register(fastifyStatic, {
+  root: path.join(import.meta.dirname, 'uploads'),
+  prefix: '/uploads/',
 });
 
 // ── Auth decorator ─────────────────────────────────────────────────────────────

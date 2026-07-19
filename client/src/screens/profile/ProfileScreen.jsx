@@ -1,19 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
 import { usersService } from '../../services/users.js';
 
-const AVATARS = ['🙂', '😎', '👩🏾', '👨🏿', '👩🏻', '👨🏾', '👩🏽', '👨🏻', '👩🏿', '👨🏽'];
 const ALL_INTERESTS = ['Art', 'Music', 'Tech', 'Sport', 'Hiking', 'Fashion', 'Food', 'Dance', 'Gaming', 'Yoga', 'Coffee', 'Travel'];
 
 export function ProfileScreen() {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const nav = (i) => navigate(['/home', '/consent', '/discover', '/logs', '/profile'][i]);
+  const fileInputRef = useRef(null);
+  const handleCheckTimer = useRef(null);
 
-  const [avatarEmoji, setAvatarEmoji] = useState(user?.avatarEmoji ?? '🙂');
+  const [username, setUsername] = useState(user?.username ?? '');
+  const [handleStatus, setHandleStatus] = useState(null); // null | 'checking' | { available, reason }
   const [university, setUniversity] = useState(user?.university ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
   const [interests, setInterests] = useState(user?.interests ?? []);
@@ -22,18 +25,72 @@ export function ProfileScreen() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [locating, setLocating] = useState(false);
-  const [locationSaved, setLocationSaved] = useState(user?.lastLocatedAt ? true : false);
+  const [locationSaved, setLocationSaved] = useState(!!user?.lastLocatedAt);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? null);
+
+  useEffect(() => {
+    if (!username || username === user?.username) { setHandleStatus(null); return; }
+    setHandleStatus('checking');
+    clearTimeout(handleCheckTimer.current);
+    handleCheckTimer.current = setTimeout(async () => {
+      try {
+        const res = await usersService.checkHandle(username.toLowerCase());
+        setHandleStatus(res);
+      } catch {
+        setHandleStatus({ available: false, reason: 'Could not check right now' });
+      }
+    }, 400);
+    return () => clearTimeout(handleCheckTimer.current);
+  }, [username, user?.username]);
 
   function toggleInterest(i) {
     setInterests((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]);
   }
 
+  async function handleAvatarPick(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarUploading(true);
+    setError('');
+    try {
+      const res = await usersService.uploadAvatar(file);
+      setAvatarUrl(res.avatarUrl);
+      await refreshUser();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAvatarUploading(false);
+      e.target.value = '';
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarUploading(true);
+    try {
+      await usersService.deleteAvatar();
+      setAvatarUrl(null);
+      await refreshUser();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   async function saveProfile() {
+    if (username && username !== user?.username && handleStatus && handleStatus.available === false) {
+      setError(handleStatus.reason ?? 'Choose a different handle');
+      return;
+    }
     setSaving(true);
     setError('');
     setSaved(false);
     try {
-      await usersService.updateProfile({ university, bio, avatarEmoji, interests, discoverable });
+      await usersService.updateProfile({
+        username: username ? username.toLowerCase() : undefined,
+        university, bio, interests, discoverable,
+      });
       await refreshUser();
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -68,8 +125,28 @@ export function ProfileScreen() {
     <div className='phone-inner'><StatusBar />
       <div className='screen' style={{ padding: '24px' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'var(--accent-bg)', border: '2px solid var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 12px' }}>{avatarEmoji}</div>
-          <div className='t-h2'>{user?.fullName}</div>
+          <div style={{ position: 'relative', width: 80, height: 80, margin: '0 auto 12px' }}>
+            <Avatar avatarUrl={avatarUrl} seed={user?.id} label={user?.fullName} size={80} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={avatarUploading}
+              style={{
+                position: 'absolute', bottom: -2, right: -2, width: 28, height: 28, borderRadius: '50%',
+                background: 'var(--accent)', border: '2px solid var(--bg)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13,
+              }}
+            >
+              📷
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleAvatarPick} />
+          </div>
+          {avatarUploading && <p className="t-small">Uploading…</p>}
+          {avatarUrl && !avatarUploading && (
+            <button className="btn btn-ghost btn-sm" style={{ width: 'auto', fontSize: 11, padding: '2px 10px' }} onClick={removeAvatar}>
+              Remove photo
+            </button>
+          )}
+          <div className='t-h2' style={{ marginTop: 8 }}>{user?.fullName}</div>
           <p className='t-small'>{user?.phone}</p>
         </div>
 
@@ -77,22 +154,24 @@ export function ProfileScreen() {
         <div className="card" style={{ marginBottom: 16 }}>
           <p className="t-label" style={{ marginBottom: 10 }}>Discovery profile</p>
 
-          <p className="t-small" style={{ marginBottom: 6 }}>Avatar</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-            {AVATARS.map((a) => (
-              <button
-                key={a}
-                onClick={() => setAvatarEmoji(a)}
-                style={{
-                  width: 36, height: 36, borderRadius: '50%', fontSize: 18, cursor: 'pointer',
-                  background: avatarEmoji === a ? 'var(--accent-bg)' : 'var(--bg)',
-                  border: avatarEmoji === a ? '2px solid var(--accent)' : '1px solid var(--border2)',
-                }}
-              >
-                {a}
-              </button>
-            ))}
+          <p className="t-small" style={{ marginBottom: 6 }}>Handle</p>
+          <div style={{ position: 'relative', marginBottom: 4 }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink3)', fontSize: 14 }}>@</span>
+            <input
+              className="input-field"
+              placeholder="yourhandle"
+              value={username}
+              onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+              style={{ paddingLeft: 26 }}
+            />
           </div>
+          {handleStatus === 'checking' && <p className="t-small" style={{ marginBottom: 12 }}>Checking…</p>}
+          {handleStatus && handleStatus !== 'checking' && (
+            <p className="t-small" style={{ marginBottom: 12, color: handleStatus.available ? 'var(--sealed)' : 'var(--red)' }}>
+              {handleStatus.available ? '✓ Available' : handleStatus.reason}
+            </p>
+          )}
+          {!handleStatus && <div style={{ marginBottom: 12 }} />}
 
           <p className="t-small" style={{ marginBottom: 6 }}>University</p>
           <input className="input-field" placeholder="e.g. UCT" value={university} onChange={(e) => setUniversity(e.target.value)} style={{ marginBottom: 12 }} />
@@ -130,6 +209,9 @@ export function ProfileScreen() {
             <span style={{ fontSize: 13, fontWeight: 600 }}>Visible in Discovery</span>
             <input type="checkbox" checked={discoverable} onChange={(e) => setDiscoverable(e.target.checked)} style={{ width: 20, height: 20, accentColor: 'var(--accent)' }} />
           </label>
+          <p className="t-small" style={{ marginBottom: 12 }}>
+            Strangers see your handle and photo only — your real name is revealed once you mutually match.
+          </p>
 
           <button className="btn btn-ghost btn-sm" onClick={captureLocation} disabled={locating} style={{ marginBottom: 10 }}>
             {locating ? 'Getting location…' : locationSaved ? '📍 Location set — update' : '📍 Set my location'}

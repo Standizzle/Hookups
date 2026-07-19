@@ -22,9 +22,10 @@ model User {
   deletedAt     DateTime?
 
   // Discovery profile
+  username      String?  @unique // Instagram-style handle, lowercase/numbers/underscore
   university    String?
   bio           String?
-  avatarEmoji   String?
+  avatarUrl     String?
   interests     String[] @default([])
   discoverable  Boolean  @default(false)
   lastLat       Float?
