@@ -1,6 +1,7 @@
 import { prisma } from '../db/client.js';
 import { signRecord, canonicalConsentJSON, sha256, hashIP } from './CryptoService.js';
 import { checkParentalGate, notifyParentOfActiveLocationSharing } from './ParentalGateService.js';
+import { checkRelationshipGate, notifyPartnerOfEncounter } from './RelationshipGateService.js';
 import { computeRequestedLevel } from '../utils/parentalLevel.js';
 
 function generateRecordId() {
@@ -60,6 +61,25 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
     throw err;
   }
 
+  // Hall Pass mode: either party's Relationship Partner may need to approve
+  // an encounter with someone off their pre-approved list before it can seal.
+  const consenterRelGate = await checkRelationshipGate({
+    userId: record.consenterId, counterpartyId: record.requesterId, consentRecordId: record.id,
+  });
+  if (!consenterRelGate.allowed) {
+    const err = new Error('Blocked by Relationship Hall Pass');
+    err.code = consenterRelGate.reason;
+    throw err;
+  }
+  const requesterRelGate = await checkRelationshipGate({
+    userId: record.requesterId, counterpartyId: record.consenterId, consentRecordId: record.id,
+  });
+  if (!requesterRelGate.allowed) {
+    const err = new Error("Blocked by your partner's Relationship Hall Pass");
+    err.code = requesterRelGate.reason;
+    throw err;
+  }
+
   // Find previous record between this pair for chain hash
   const prev = await prisma.consentRecord.findFirst({
     where: {
@@ -103,6 +123,10 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
       { userId: record.consenterId, recordId: record.id, type: 'consent_confirmed', title: 'Consent sealed', actor: 'System', metadata: { recordId: record.recordId } },
     ],
   });
+
+  // Notify transparency mode: read-only heads-up to either party's Relationship Partner
+  await notifyPartnerOfEncounter({ userId: record.requesterId, counterpartyId: record.consenterId, consentRecordId: record.id }).catch(() => {});
+  await notifyPartnerOfEncounter({ userId: record.consenterId, counterpartyId: record.requesterId, consentRecordId: record.id }).catch(() => {});
 
   // Open location shares if both agreed
   if (signed.locationSharing) {

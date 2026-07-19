@@ -39,6 +39,9 @@ model User {
   partnerLinksB    PartnerLink[]   @relation("UserB")
   parentalAsParent ParentalLink[]  @relation("Parent")
   parentalAsMinor  ParentalLink[]  @relation("Minor")
+  relationshipsA   Relationship[]  @relation("RelUserA")
+  relationshipsB   Relationship[]  @relation("RelUserB")
+  hallPassEntries  HallPassEntry[]
   guardianContacts GuardianContact[]
   activityLogs     ActivityLog[]
   locationShares   LocationShare[]
@@ -126,10 +129,60 @@ model ConsentRecord {
   locationShares LocationShare[]
   activityLogs   ActivityLog[]
   overrides      ParentalOverride[]
+  relationshipApprovals RelationshipApproval[]
 
   createdAt DateTime @default(now())
 
   @@map("consent_records")
+}
+
+model Relationship {
+  id               String    @id @default(uuid())
+  userAId          String
+  userBId          String
+  userA            User      @relation("RelUserA", fields: [userAId], references: [id])
+  userB            User      @relation("RelUserB", fields: [userBId], references: [id])
+  status           String    @default("pending") // pending | active | ended
+  transparencyMode String    @default("private")  // private | notify | hall_pass
+  isPublic         Boolean   @default(false)
+  sealedAt         DateTime?
+  endedAt          DateTime?
+  endedById        String?
+  createdAt        DateTime  @default(now())
+
+  hallPassEntries HallPassEntry[]
+  approvals       RelationshipApproval[]
+
+  @@map("relationships")
+}
+
+model HallPassEntry {
+  id             String       @id @default(uuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id])
+  approvedUserId String
+  approvedUser   User         @relation(fields: [approvedUserId], references: [id])
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+
+  @@unique([relationshipId, approvedUserId])
+  @@map("hall_pass_entries")
+}
+
+model RelationshipApproval {
+  id               String        @id @default(uuid())
+  relationshipId   String
+  relationship     Relationship  @relation(fields: [relationshipId], references: [id])
+  consentRecordId  String
+  consentRecord    ConsentRecord @relation(fields: [consentRecordId], references: [id])
+  requestingUserId String        // the relationship member who wants to consent with someone off-list
+  thirdPartyId     String        // the person they want to consent with
+  status           String        @default("pending") // pending | approved | denied
+  requestedAt      DateTime      @default(now())
+  respondedAt      DateTime?
+
+  @@unique([consentRecordId, relationshipId])
+  @@map("relationship_approvals")
 }
 
 model LocationShare {

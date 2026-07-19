@@ -13,15 +13,17 @@ export default async function partnerRoutes(fastify) {
     const links = await prisma.partnerLink.findMany({
       where: {
         OR: [{ userAId: req.userId }, { userBId: req.userId }],
-        status: 'active',
+        status: { in: ['pending', 'active'] },
       },
       include: {
         userA: { select: { id: true, fullName: true, verifiedAt: true } },
         userB: { select: { id: true, fullName: true, verifiedAt: true } },
       },
+      orderBy: { createdAt: 'desc' },
     });
     return links.map((l) => ({
-      id: l.id, linkId: l.linkId, sealedAt: l.sealedAt,
+      id: l.id, linkId: l.linkId, status: l.status, sealedAt: l.sealedAt,
+      isProposer: l.userAId === req.userId,
       partner: l.userAId === req.userId ? l.userB : l.userA,
     }));
   });

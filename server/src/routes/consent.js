@@ -2,6 +2,7 @@ import { prisma } from '../db/client.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { verifyPIN } from '../services/PINService.js';
 import { createConsentRequest, confirmConsent, revokeConsent } from '../services/ConsentService.js';
+import { getActiveRelationship } from '../services/RelationshipGateService.js';
 import { triggerDuress } from '../services/AlertService.js';
 import { z } from 'zod';
 
@@ -72,6 +73,15 @@ export default async function consentRoutes(fastify) {
     if (record.status !== 'pending') return reply.status(409).send({ error: 'Consent is no longer pending', status: record.status });
     if (new Date() > record.expiresAt) return reply.status(410).send({ error: 'Consent request expired' });
 
+    // Third parties are always told about a Public Relationship before PIN entry.
+    const requesterRel = await getActiveRelationship(record.requesterId);
+    let relationshipDisclosure = null;
+    if (requesterRel && requesterRel.isPublic) {
+      const partnerId = requesterRel.userAId === record.requesterId ? requesterRel.userBId : requesterRel.userAId;
+      const partner = await prisma.user.findUnique({ where: { id: partnerId }, select: { fullName: true } });
+      relationshipDisclosure = { inRelationshipWith: partner.fullName };
+    }
+
     return {
       id:       record.id,
       recordId: record.recordId,
@@ -79,6 +89,7 @@ export default async function consentRoutes(fastify) {
         id:       record.requester.id,
         name:     record.requester.fullName,
         verified: !!record.requester.verifiedAt,
+        relationship: relationshipDisclosure,
       },
       terms: {
         holdingHandsHugging:   record.holdingHandsHugging,
@@ -132,6 +143,8 @@ export default async function consentRoutes(fastify) {
         LEVEL_BLOCKED:    "This exceeds what's permitted for your account.",
         OVERRIDE_DENIED:  'Your parent declined this request.',
         OVERRIDE_PENDING: "This needs your parent's approval — they've been notified.",
+        RELATIONSHIP_OVERRIDE_PENDING: "This needs your Relationship Partner's approval — they've been notified.",
+        RELATIONSHIP_OVERRIDE_DENIED:  'Your Relationship Partner declined this request.',
       };
       if (err.code && GATE_MESSAGES[err.code]) {
         return reply.status(403).send({ error: GATE_MESSAGES[err.code], code: err.code });

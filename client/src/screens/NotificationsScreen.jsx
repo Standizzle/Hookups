@@ -6,6 +6,7 @@ import { consentService } from '../services/consent.js';
 import { discoverService } from '../services/discover.js';
 import { parentalService } from '../services/parental.js';
 import { meetupsService } from '../services/meetups.js';
+import { relationshipsService } from '../services/relationships.js';
 
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -29,12 +30,13 @@ export function NotificationsScreen() {
     setLoading(true);
     setError('');
     try {
-      const [consentRes, matches, links, overrides, meetups] = await Promise.all([
+      const [consentRes, matches, links, overrides, meetups, relApprovals] = await Promise.all([
         consentService.list({ status: 'pending' }),
         discoverService.matches(),
         parentalService.myLinks(),
         parentalService.overrides().catch(() => []),
         meetupsService.list(),
+        relationshipsService.approvals().catch(() => []),
       ]);
 
       const feed = [];
@@ -73,6 +75,15 @@ export function NotificationsScreen() {
           text: <><strong>{o.minor.fullName}</strong> needs approval for Level {o.requestedLevel} with <strong>{o.requester.fullName}</strong></>,
           onSkip: () => decideOverride(o.id, 'deny'),
           onAccept: () => decideOverride(o.id, 'approve'),
+        });
+      }
+
+      for (const a of relApprovals) {
+        feed.push({
+          id: `relapproval-${a.id}`, type: 'relapproval', icon: '🤝', createdAt: a.requestedAt,
+          text: <><strong>{a.requester.fullName}</strong> wants to record consent with <strong>{a.thirdParty.fullName}</strong> — not on your Hall Pass list</>,
+          onSkip: () => decideRelApproval(a.id, 'deny'),
+          onAccept: () => decideRelApproval(a.id, 'approve'),
         });
       }
 
@@ -133,6 +144,19 @@ export function NotificationsScreen() {
     }
   }
 
+  async function decideRelApproval(id, action) {
+    setActingId(id);
+    try {
+      if (action === 'approve') await relationshipsService.approveApproval(id);
+      else await relationshipsService.denyApproval(id);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setActingId(null);
+    }
+  }
+
   return (
     <div className='phone-inner'><StatusBar />
       <div className='screen' style={{ padding: '24px' }}>
@@ -153,12 +177,12 @@ export function NotificationsScreen() {
             <div style={{ display: 'flex', gap: 8 }}>
               {it.onSkip && (
                 <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={it.onSkip} disabled={!!actingId}>
-                  {it.type === 'override' ? 'Deny' : 'Skip'}
+                  {it.type === 'override' || it.type === 'relapproval' ? 'Deny' : 'Skip'}
                 </button>
               )}
               {it.onAccept && (
                 <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={it.onAccept} disabled={!!actingId}>
-                  {it.type === 'override' ? 'Approve' : it.type === 'parentlink' ? 'Accept' : 'Match back'}
+                  {it.type === 'override' || it.type === 'relapproval' ? 'Approve' : it.type === 'parentlink' ? 'Accept' : 'Match back'}
                 </button>
               )}
               {it.onReview && (

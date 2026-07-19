@@ -4,7 +4,10 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
 import { Avatar } from '../../components/common/Avatar.jsx';
+import { PinPad } from '../../components/consent/PinPad.jsx';
 import { usersService } from '../../services/users.js';
+import { partnersService } from '../../services/partners.js';
+import { relationshipsService } from '../../services/relationships.js';
 
 const ALL_INTERESTS = ['Art', 'Music', 'Tech', 'Sport', 'Hiking', 'Fashion', 'Food', 'Dance', 'Gaming', 'Yoga', 'Coffee', 'Travel'];
 
@@ -28,6 +31,128 @@ export function ProfileScreen() {
   const [locationSaved, setLocationSaved] = useState(!!user?.lastLocatedAt);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? null);
+
+  const [partners, setPartners] = useState([]);
+  const [partnerPhone, setPartnerPhone] = useState('');
+  const [partnerBusy, setPartnerBusy] = useState(false);
+  const [partnerError, setPartnerError] = useState('');
+
+  const [relData, setRelData] = useState({ relationship: null, hallPass: [] });
+  const [relPhone, setRelPhone] = useState('');
+  const [relBusy, setRelBusy] = useState(false);
+  const [relError, setRelError] = useState('');
+  const [hallPassPhone, setHallPassPhone] = useState('');
+  const [hallPassDays, setHallPassDays] = useState(30);
+  const [pinAction, setPinAction] = useState(null); // { type: 'accept-relationship'|'end-relationship', id }
+
+  async function loadRelationshipData() {
+    try {
+      const [links, rel] = await Promise.all([partnersService.list(), relationshipsService.mine()]);
+      setPartners(links);
+      setRelData(rel);
+    } catch { /* non-fatal — leave previous state */ }
+  }
+
+  useEffect(() => { loadRelationshipData(); }, []);
+
+  async function requestPartner() {
+    setPartnerBusy(true);
+    setPartnerError('');
+    try {
+      const found = await usersService.lookupByPhone(partnerPhone);
+      await partnersService.request(found.id);
+      setPartnerPhone('');
+      await loadRelationshipData();
+    } catch (err) {
+      setPartnerError(err.message);
+    } finally {
+      setPartnerBusy(false);
+    }
+  }
+
+  async function unlinkPartner(id) {
+    setPartnerBusy(true);
+    try {
+      await partnersService.unlink(id);
+      await loadRelationshipData();
+    } catch (err) {
+      setPartnerError(err.message);
+    } finally {
+      setPartnerBusy(false);
+    }
+  }
+
+  async function acceptPartner(id) {
+    await partnersService.accept(id);
+    await loadRelationshipData();
+  }
+
+  async function requestRelationship() {
+    setRelBusy(true);
+    setRelError('');
+    try {
+      await relationshipsService.request(relPhone);
+      setRelPhone('');
+      await loadRelationshipData();
+    } catch (err) {
+      setRelError(err.message);
+    } finally {
+      setRelBusy(false);
+    }
+  }
+
+  async function acceptRelationship(id, pin, reset, setPadError) {
+    try {
+      await relationshipsService.accept(id, pin);
+      setPinAction(null);
+      await loadRelationshipData();
+    } catch (err) {
+      reset();
+      setPadError(err.message ?? 'Incorrect PIN');
+    }
+  }
+
+  async function endRelationship(id, pin, reset, setPadError) {
+    try {
+      await relationshipsService.end(id, pin);
+      setPinAction(null);
+      await loadRelationshipData();
+    } catch (err) {
+      reset();
+      setPadError(err.message ?? 'Incorrect PIN');
+    }
+  }
+
+  async function updateRelSettings(id, settings) {
+    setRelError('');
+    try {
+      await relationshipsService.updateSettings(id, settings);
+      await loadRelationshipData();
+    } catch (err) {
+      setRelError(err.message);
+    }
+  }
+
+  async function addHallPass(id) {
+    setRelError('');
+    try {
+      const expiresAt = new Date(Date.now() + hallPassDays * 86400000).toISOString();
+      await relationshipsService.addHallPass(id, hallPassPhone, expiresAt);
+      setHallPassPhone('');
+      await loadRelationshipData();
+    } catch (err) {
+      setRelError(err.message);
+    }
+  }
+
+  async function removeHallPass(id, entryId) {
+    try {
+      await relationshipsService.removeHallPass(id, entryId);
+      await loadRelationshipData();
+    } catch (err) {
+      setRelError(err.message);
+    }
+  }
 
   useEffect(() => {
     if (!username || username === user?.username) { setHandleStatus(null); return; }
@@ -118,6 +243,26 @@ export function ProfileScreen() {
       },
       (err) => { setError(err.message ?? 'Could not get your location'); setLocating(false); },
       { enableHighAccuracy: true }
+    );
+  }
+
+  if (pinAction) {
+    const labels = {
+      'accept-relationship': 'Enter your PIN to confirm your Relationship Partner',
+      'end-relationship':    'Enter your PIN to end the relationship',
+    };
+    const handlers = {
+      'accept-relationship': (pin, reset, setPadError) => acceptRelationship(pinAction.id, pin, reset, setPadError),
+      'end-relationship':    (pin, reset, setPadError) => endRelationship(pinAction.id, pin, reset, setPadError),
+    };
+    return (
+      <div className='phone-inner'><StatusBar />
+        <div className='screen' style={{ padding: '24px' }}>
+          <button className="btn btn-ghost btn-sm" style={{ width: 'auto', marginBottom: 20 }} onClick={() => setPinAction(null)}>← Back</button>
+          <PinPad onComplete={handlers[pinAction.type]} label={labels[pinAction.type]} />
+        </div>
+        <NavBar active={4} onTab={nav} />
+      </div>
     );
   }
 
@@ -221,6 +366,140 @@ export function ProfileScreen() {
           <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={saving}>
             {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save profile'}
           </button>
+        </div>
+
+        {/* Linked Partners — saved contacts, faster Smart Connect, no consent obligations */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <p className="t-label" style={{ marginBottom: 10 }}>Linked Partners</p>
+          <p className="t-small" style={{ marginBottom: 12 }}>
+            Saved contacts for faster Smart Connect. Every encounter still needs a full PIN.
+          </p>
+
+          {partners.map((p) => (
+            <div key={p.id} className="card" style={{ marginBottom: 8, padding: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{p.partner.fullName}</div>
+                  <span className="t-small">{p.status === 'active' ? 'Linked' : p.isProposer ? 'Pending — waiting on them' : 'Wants to link with you'}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {p.status === 'pending' && !p.isProposer && (
+                    <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} onClick={() => acceptPartner(p.id)}>Accept</button>
+                  )}
+                  <button className="btn btn-ghost btn-sm" style={{ width: 'auto' }} disabled={partnerBusy} onClick={() => unlinkPartner(p.id)}>
+                    {p.status === 'pending' && p.isProposer ? 'Cancel' : 'Unlink'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              className="input-field" placeholder="+27 82 123 4567" style={{ flex: 1 }}
+              value={partnerPhone} onChange={(e) => setPartnerPhone(e.target.value)}
+            />
+            <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={!partnerPhone.trim() || partnerBusy} onClick={requestPartner}>
+              {partnerBusy ? '…' : 'Link'}
+            </button>
+          </div>
+          {partnerError && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 8 }}>{partnerError}</p>}
+        </div>
+
+        {/* Relationship Partner — one at a time, mutually-PINned */}
+        <div className="card" style={{ marginBottom: 16, borderColor: 'var(--pink-300)' }}>
+          <p className="t-label" style={{ marginBottom: 10, color: 'var(--pink-500)' }}>Relationship Partner</p>
+
+          {!relData.relationship && (
+            <>
+              <p className="t-small" style={{ marginBottom: 12 }}>
+                One at a time, mutually confirmed with a PIN. Choose how much transparency you want between the two of you.
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="input-field" placeholder="+27 82 123 4567" style={{ flex: 1 }}
+                  value={relPhone} onChange={(e) => setRelPhone(e.target.value)}
+                />
+                <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={!relPhone.trim() || relBusy} onClick={requestRelationship}>
+                  {relBusy ? '…' : 'Request'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {relData.relationship?.status === 'pending' && relData.relationship.isProposer && (
+            <p className="t-small">⏳ Waiting for <strong style={{ color: 'var(--ink)' }}>{relData.relationship.partner.fullName}</strong> to confirm with their PIN.</p>
+          )}
+
+          {relData.relationship?.status === 'pending' && !relData.relationship.isProposer && (
+            <>
+              <p className="t-small" style={{ marginBottom: 12 }}>
+                <strong style={{ color: 'var(--ink)' }}>{relData.relationship.partner.fullName}</strong> wants to be your Relationship Partner.
+              </p>
+              <button className="btn btn-primary btn-sm" onClick={() => setPinAction({ type: 'accept-relationship', id: relData.relationship.id })}>
+                Confirm with PIN →
+              </button>
+            </>
+          )}
+
+          {relData.relationship?.status === 'active' && (
+            <>
+              <p className="t-small" style={{ marginBottom: 14 }}>
+                With <strong style={{ color: 'var(--ink)' }}>{relData.relationship.partner.fullName}</strong> since {new Date(relData.relationship.sealedAt).toLocaleDateString()}
+              </p>
+
+              <p className="t-small" style={{ marginBottom: 6 }}>Transparency mode</p>
+              <select
+                className="input-field" style={{ marginBottom: 12 }}
+                value={relData.relationship.transparencyMode}
+                onChange={(e) => updateRelSettings(relData.relationship.id, { transparencyMode: e.target.value })}
+              >
+                <option value="private">🔒 Private — just a contact bond</option>
+                <option value="notify">🔔 Notify — read-only heads-up on other encounters</option>
+                <option value="hall_pass">🤝 Hall Pass — pre-approve specific people</option>
+              </select>
+
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Public Relationship (others see "in a relationship" before PIN)</span>
+                <input
+                  type="checkbox" checked={relData.relationship.isPublic}
+                  onChange={(e) => updateRelSettings(relData.relationship.id, { isPublic: e.target.checked })}
+                  style={{ width: 20, height: 20, accentColor: 'var(--pink-500)', flexShrink: 0, marginLeft: 10 }}
+                />
+              </label>
+
+              {relData.relationship.transparencyMode === 'hall_pass' && (
+                <div style={{ marginBottom: 14 }}>
+                  <p className="t-small" style={{ marginBottom: 8 }}>Hall Pass list — off-list encounters need your partner's approval</p>
+                  {relData.hallPass.map((h) => (
+                    <div key={h.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13 }}>{h.approvedUser.fullName} — expires {new Date(h.expiresAt).toLocaleDateString()}</span>
+                      <button className="btn btn-ghost btn-sm" style={{ width: 'auto', fontSize: 11, padding: '2px 8px' }} onClick={() => removeHallPass(relData.relationship.id, h.id)}>Remove</button>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <input
+                      className="input-field" placeholder="+27 82 123 4567" style={{ flex: 1 }}
+                      value={hallPassPhone} onChange={(e) => setHallPassPhone(e.target.value)}
+                    />
+                    <input
+                      className="input-field" type="number" min={1} max={365} style={{ width: 64 }}
+                      value={hallPassDays} onChange={(e) => setHallPassDays(parseInt(e.target.value) || 1)}
+                    />
+                    <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} disabled={!hallPassPhone.trim()} onClick={() => addHallPass(relData.relationship.id)}>
+                      + Add
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => setPinAction({ type: 'end-relationship', id: relData.relationship.id })}>
+                I've Changed My Mind
+              </button>
+            </>
+          )}
+
+          {relError && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 8 }}>{relError}</p>}
         </div>
 
         {[['🛡', 'Guardian', '/guardian'], ['🔐', 'Duress PIN', '/duress'], ['👨‍👩‍👧', 'Parental Controls', '/parental'], ['🔔', 'Notifications', '/notifs']].map(([icon, label, path]) => (

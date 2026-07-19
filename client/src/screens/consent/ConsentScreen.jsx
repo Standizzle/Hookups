@@ -49,7 +49,11 @@ export function ConsentScreen() {
   const [pendingPin, setPendingPin] = useState('');
   const [pendingLoc, setPendingLoc] = useState(null);
 
-  const GATE_REASONS = ['NO_PARENTAL_LINK', 'LEVEL_BLOCKED', 'OVERRIDE_DENIED', 'OVERRIDE_PENDING'];
+  const GATE_REASONS = [
+    'NO_PARENTAL_LINK', 'LEVEL_BLOCKED', 'OVERRIDE_DENIED', 'OVERRIDE_PENDING',
+    'RELATIONSHIP_OVERRIDE_PENDING', 'RELATIONSHIP_OVERRIDE_DENIED',
+  ];
+  const PENDING_REASONS = ['OVERRIDE_PENDING', 'RELATIONSHIP_OVERRIDE_PENDING'];
 
   // Deeplink/QR entry (hookups://consent/<id>) — fetch disclosure immediately
   useEffect(() => {
@@ -89,18 +93,18 @@ export function ConsentScreen() {
     return () => clearInterval(interval);
   }, [step, consentId]);
 
-  // Consenter: while waiting on a Level 3 parental override, retry confirm
-  // periodically with the same (already-correct) PIN — resolves automatically
-  // once the parent approves or denies.
+  // Consenter: while waiting on a Level 3 parental override OR a Relationship
+  // Hall Pass approval, retry confirm periodically with the same (already-
+  // correct) PIN — resolves automatically once the approver responds.
   useEffect(() => {
-    if (step !== 'blocked' || blockedReason !== 'OVERRIDE_PENDING') return;
+    if (step !== 'blocked' || !PENDING_REASONS.includes(blockedReason)) return;
     const interval = setInterval(async () => {
       try {
         const data = await consentService.confirm(consentId, { pin: pendingPin, agreedToLocation: locationAgree, lat: pendingLoc?.lat, lng: pendingLoc?.lng });
         setResult(data);
         setStep('confirmed');
       } catch (err) {
-        if (err.code && err.code !== 'OVERRIDE_PENDING') setBlockedReason(err.code);
+        if (err.code && !PENDING_REASONS.includes(err.code)) setBlockedReason(err.code);
       }
     }, 4000);
     return () => clearInterval(interval);
@@ -344,6 +348,15 @@ export function ConsentScreen() {
               {' '}is requesting your consent.
             </p>
 
+            {disclosure.requester.relationship && (
+              <div className="card" style={{ marginBottom: 16, borderColor: 'var(--pink-300)' }}>
+                <p style={{ fontSize: 13 }}>
+                  💗 <strong style={{ color: 'var(--ink)' }}>{disclosure.requester.name}</strong> is in a relationship with{' '}
+                  <strong style={{ color: 'var(--ink)' }}>{disclosure.requester.relationship.inRelationshipWith}</strong>.
+                </p>
+              </div>
+            )}
+
             <div className="card" style={{ marginBottom: 16 }}>
               <p className="t-label" style={{ marginBottom: 10 }}>Agreed terms</p>
               {[
@@ -388,12 +401,14 @@ export function ConsentScreen() {
         {/* STEP: Blocked by parental controls */}
         {step === 'blocked' && (
           <div className="anim-fade-up" style={{ textAlign: 'center', paddingTop: 32 }}>
-            {blockedReason === 'OVERRIDE_PENDING' ? (
+            {PENDING_REASONS.includes(blockedReason) ? (
               <>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
                 <div className="t-h2" style={{ marginBottom: 8 }}>Waiting for approval</div>
                 <p className="t-body" style={{ marginBottom: 20 }}>
-                  This needs your parent's approval. We've notified them — this screen will update automatically once they respond.
+                  {blockedReason === 'RELATIONSHIP_OVERRIDE_PENDING'
+                    ? "This needs your Relationship Partner's approval. We've notified them — this screen will update automatically once they respond."
+                    : "This needs your parent's approval. We've notified them — this screen will update automatically once they respond."}
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20 }}>
                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--amber)', animation: 'pulse-ring 1.5s ease infinite' }} />
@@ -404,12 +419,13 @@ export function ConsentScreen() {
               <>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>🛡️</div>
                 <div className="t-h2" style={{ marginBottom: 8 }}>
-                  {blockedReason === 'OVERRIDE_DENIED' ? 'Request declined' : 'Not permitted'}
+                  {blockedReason === 'OVERRIDE_DENIED' || blockedReason === 'RELATIONSHIP_OVERRIDE_DENIED' ? 'Request declined' : 'Not permitted'}
                 </div>
                 <p className="t-body" style={{ marginBottom: 20 }}>
                   {blockedReason === 'NO_PARENTAL_LINK' && 'You need a linked parent or guardian before you can confirm this.'}
                   {blockedReason === 'LEVEL_BLOCKED' && "This exceeds what's permitted for your account and can't be overridden."}
                   {blockedReason === 'OVERRIDE_DENIED' && 'Your parent declined this request.'}
+                  {blockedReason === 'RELATIONSHIP_OVERRIDE_DENIED' && 'Your Relationship Partner declined this request.'}
                 </p>
               </>
             )}
