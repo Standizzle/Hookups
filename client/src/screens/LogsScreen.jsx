@@ -1,42 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../components/layout/StatusBar.jsx';
 import { NavBar } from '../components/layout/NavBar.jsx';
+import { logsService } from '../services/logs.js';
 
 const NAV = ['/home', '/consent', '/discover', '/logs', '/profile'];
 
-const MOCK_LOGS = [
-  {
-    id: 'cl-001', type: 'consent_sealed', icon: '✅', title: 'Consent sealed with Lerato M.',
-    detail: 'Physical Intimacy, Kissing & Affection · Safe word: pineapple',
-    time: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), status: 'sealed',
-  },
-  {
-    id: 'cl-002', type: 'consent_requested', icon: '🔗', title: 'Consent request sent to Kagiso D.',
-    detail: 'Kissing & Affection, Live Location · Expires in 45 min',
-    time: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), status: 'pending',
-  },
-  {
-    id: 'cl-003', type: 'consent_revoked', icon: '🚫', title: 'Consent revoked with Sipho K.',
-    detail: 'Revoked by you · All location sharing stopped',
-    time: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), status: 'revoked',
-  },
-  {
-    id: 'cl-004', type: 'guardian_checkin', icon: '🛡', title: 'Silent check-in sent',
-    detail: 'Alert delivered to Thabo N. · No response required',
-    time: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), status: 'info',
-  },
-  {
-    id: 'cl-005', type: 'consent_sealed', icon: '✅', title: 'Consent sealed with Zara N.',
-    detail: 'Overnight Stays, Photos/Video · Location sharing agreed',
-    time: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), status: 'sealed',
-  },
-  {
-    id: 'cl-006', type: 'meetup_proposed', icon: '📍', title: 'Meetup proposed with Ayesha P.',
-    detail: 'UCT Upper Campus · Sat 12 Jul 7pm',
-    time: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), status: 'pending',
-  },
-];
+const TYPE_META = {
+  registration:        { icon: '👤', status: 'info' },
+  pin_set:             { icon: '🔑', status: 'info' },
+  pin_attempt_failed:  { icon: '⚠️', status: 'info' },
+  consent_confirmed:   { icon: '✅', status: 'sealed' },
+  consent_revoked:     { icon: '🚫', status: 'revoked' },
+};
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -49,6 +25,7 @@ const FILTERS = [
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
@@ -59,8 +36,37 @@ export function LogsScreen() {
   const navigate = useNavigate();
   const nav = (i) => navigate(NAV[i]);
   const [filter, setFilter] = useState('all');
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const logs = filter === 'all' ? MOCK_LOGS : MOCK_LOGS.filter((l) => l.status === filter);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await logsService.list({ limit: 50 });
+        setLogs(data.logs);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const entries = logs.map((l) => {
+    const meta = TYPE_META[l.type] ?? { icon: '🔔', status: 'info' };
+    return {
+      id: l.id,
+      recordId: l.recordId,
+      icon: meta.icon,
+      status: meta.status,
+      title: l.title,
+      detail: l.metadata?.recordId ? `Record ${l.metadata.recordId}` : l.actor,
+      time: l.createdAt,
+    };
+  });
+
+  const filtered = filter === 'all' ? entries : entries.filter((l) => l.status === filter);
 
   return (
     <div className="phone-inner">
@@ -87,13 +93,16 @@ export function LogsScreen() {
           ))}
         </div>
 
+        {loading && <p className="t-body" style={{ textAlign: 'center', marginTop: 40 }}>Loading…</p>}
+        {error && <p style={{ color: 'var(--red)', fontSize: 13, textAlign: 'center' }}>{error}</p>}
+
         {/* Log entries */}
-        {logs.map((l) => (
+        {filtered.map((l) => (
           <div
             key={l.id}
             className="card"
-            style={{ marginBottom: 10, cursor: l.status === 'sealed' ? 'pointer' : 'default' }}
-            onClick={() => l.status === 'sealed' && navigate(`/revoke/${l.id}`)}
+            style={{ marginBottom: 10, cursor: l.status === 'sealed' && l.recordId ? 'pointer' : 'default' }}
+            onClick={() => l.status === 'sealed' && l.recordId && navigate(`/revoke/${l.recordId}`)}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
               <div style={{
@@ -131,7 +140,7 @@ export function LogsScreen() {
           </div>
         ))}
 
-        {logs.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <p className="t-body" style={{ textAlign: 'center', marginTop: 40 }}>No entries for this filter.</p>
         )}
       </div>
