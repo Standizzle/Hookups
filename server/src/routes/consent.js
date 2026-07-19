@@ -30,6 +30,8 @@ const RequestSchema = z.object({
 const ConfirmSchema = z.object({
   pin:             z.string().regex(/^\d{4}$/),
   agreedToLocation: z.boolean().default(false),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
 });
 
 const RevokeSchema = z.object({
@@ -111,7 +113,9 @@ export default async function consentRoutes(fastify) {
     }
 
     if (isDuress) {
-      triggerDuress({ userId: req.userId, lat: null, lng: null }).catch(() => {});
+      // lat/lng captured client-side on every confirm attempt symmetrically
+      // (duress or not) — carries a real fix instead of always null.
+      triggerDuress({ userId: req.userId, lat: body.data.lat ?? null, lng: body.data.lng ?? null }).catch(() => {});
     }
 
     let record;

@@ -17,8 +17,8 @@ export const authService = {
     return data;
   },
 
-  async login({ phone, pin }) {
-    const data = await api.post('/auth/login', { phone, pin });
+  async login({ phone, pin, lat, lng }) {
+    const data = await api.post('/auth/login', { phone, pin, lat, lng });
     if (data.token) setToken(data.token);
     return data;
   },

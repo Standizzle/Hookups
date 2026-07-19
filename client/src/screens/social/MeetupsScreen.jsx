@@ -34,6 +34,8 @@ export function MeetupsScreen() {
   const [datetime, setDatetime] = useState('');
   const [proposing, setProposing] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState(null);
+  const [cancelingId, setCancelingId] = useState(null);
+  const [confirmCancelId, setConfirmCancelId] = useState(null);
 
   async function loadMeetups() {
     setLoading(true);
@@ -81,6 +83,20 @@ export function MeetupsScreen() {
     } catch (err) {
       reset();
       setPinError(err.message ?? 'Incorrect PIN');
+    }
+  }
+
+  async function cancelMeetup(id) {
+    setCancelingId(id);
+    setError('');
+    try {
+      await meetupsService.cancel(id);
+      setConfirmCancelId(null);
+      await loadMeetups();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCancelingId(null);
     }
   }
 
@@ -170,6 +186,38 @@ export function MeetupsScreen() {
                 )}
                 {m.status === 'pending' && m.isProposer && (
                   <p className="t-small" style={{ marginTop: 10 }}>Waiting for {m.partner.fullName} to confirm…</p>
+                )}
+
+                {(m.status === 'pending' || m.status === 'confirmed') && (
+                  confirmCancelId === m.id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                      <span className="t-small" style={{ flex: 1 }}>Cancel this meetup?</span>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ width: 'auto' }}
+                        onClick={() => setConfirmCancelId(null)}
+                        disabled={cancelingId === m.id}
+                      >
+                        No
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ width: 'auto', background: 'var(--red)', color: '#fff' }}
+                        onClick={() => cancelMeetup(m.id)}
+                        disabled={cancelingId === m.id}
+                      >
+                        {cancelingId === m.id ? 'Cancelling…' : 'Yes, cancel'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ marginTop: 12, color: 'var(--red)' }}
+                      onClick={() => setConfirmCancelId(m.id)}
+                    >
+                      Cancel meetup
+                    </button>
+                  )
                 )}
               </div>
             ))}

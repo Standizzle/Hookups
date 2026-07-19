@@ -43,6 +43,40 @@ export async function checkParentalGate({ userId, requestedLevel, consentRecordI
   return { allowed: false, reason: 'OVERRIDE_PENDING' };
 }
 
+/** Active parental link where the given user is the minor, or null. */
+export async function getActiveParentLink(minorId) {
+  return prisma.parentalLink.findFirst({ where: { minorId, status: 'active' } });
+}
+
+/**
+ * Level 3+ auto-adds the linked parent as a location recipient once live
+ * location sharing is actually active for the encounter (per the parent's
+ * own locationAlerts toggle).
+ */
+export async function notifyParentOfActiveLocationSharing({ recordId, requesterId, consenterId }) {
+  for (const partyId of [requesterId, consenterId]) {
+    const party = await prisma.user.findUnique({ where: { id: partyId }, select: { dateOfBirth: true, fullName: true } });
+    if (!isMinor(party?.dateOfBirth)) continue;
+
+    const link = await getActiveParentLink(partyId);
+    if (!link || !link.locationAlerts) continue;
+
+    const parent = await prisma.user.findUnique({ where: { id: link.parentId }, select: { phone: true } });
+    const message = `Hookups: live location sharing is active for ${party.fullName} during a consent encounter. You can check in on them in the app.`;
+    await SMSService.send(parent.phone, message).catch(() => {});
+    await prisma.activityLog.create({
+      data: {
+        userId: link.parentId,
+        recordId,
+        type: 'location_sharing_started',
+        title: 'Live location sharing started',
+        actor: 'System',
+        metadata: { minorName: party.fullName },
+      },
+    });
+  }
+}
+
 async function notifyParentOfOverride({ link, requestedLevel, requesterId }) {
   const [parent, minor, requester] = await Promise.all([
     prisma.user.findUnique({ where: { id: link.parentId }, select: { phone: true, fullName: true } }),

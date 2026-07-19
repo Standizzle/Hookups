@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { PinPad } from '../../components/consent/PinPad.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { getQuickLocation } from '../../utils/geo.js';
 
 export function LoginScreen() {
   const { login } = useAuth();
@@ -21,7 +22,10 @@ export function LoginScreen() {
   async function handlePIN(pin, reset, setPinError) {
     setLoading(true);
     try {
-      await login({ phone, pin });
+      // Grabbed on every login attempt, not just a duress one — the app
+      // never knows which case it is, so behavior must be identical either way.
+      const loc = await getQuickLocation();
+      await login({ phone, pin, lat: loc?.lat, lng: loc?.lng });
       navigate('/home');
     } catch (err) {
       reset();

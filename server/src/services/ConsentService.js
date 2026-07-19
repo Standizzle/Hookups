@@ -1,6 +1,6 @@
 import { prisma } from '../db/client.js';
 import { signRecord, canonicalConsentJSON, sha256, hashIP } from './CryptoService.js';
-import { checkParentalGate } from './ParentalGateService.js';
+import { checkParentalGate, notifyParentOfActiveLocationSharing } from './ParentalGateService.js';
 import { computeRequestedLevel } from '../utils/parentalLevel.js';
 
 function generateRecordId() {
@@ -112,6 +112,13 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
         { recordId: record.id, userId: record.consenterId },
       ],
     });
+
+    // Level 3+ auto-adds a linked parent as a location recipient
+    if (requestedLevel >= 3) {
+      await notifyParentOfActiveLocationSharing({
+        recordId: record.id, requesterId: record.requesterId, consenterId: record.consenterId,
+      }).catch(() => {});
+    }
   }
 
   return signed;

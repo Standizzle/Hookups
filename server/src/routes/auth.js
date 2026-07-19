@@ -18,6 +18,8 @@ const SetPINSchema = z.object({
 const LoginSchema = z.object({
   phone: z.string(),
   pin:   z.string().regex(/^\d{4}$/),
+  lat:   z.number().optional(),
+  lng:   z.number().optional(),
 });
 
 export default async function authRoutes(fastify) {
@@ -96,7 +98,7 @@ export default async function authRoutes(fastify) {
   }, async (req, reply) => {
     const body = LoginSchema.safeParse(req.body);
     if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
-    const { phone, pin } = body.data;
+    const { phone, pin, lat, lng } = body.data;
 
     const user = await prisma.user.findUnique({ where: { phone } });
     if (!user || user.status !== 'active') {
@@ -121,9 +123,11 @@ export default async function authRoutes(fastify) {
     await redis.del(attemptsKey);
 
     if (isDuress) {
-      // Silently trigger duress alert — import lazily to avoid circular
+      // Silently trigger duress alert — import lazily to avoid circular.
+      // lat/lng were captured client-side on every login attempt symmetrically
+      // (duress or not), so this carries a real fix instead of always null.
       import('../services/AlertService.js').then(({ triggerDuress }) => {
-        triggerDuress({ userId: user.id, lat: null, lng: null }).catch(() => {});
+        triggerDuress({ userId: user.id, lat: lat ?? null, lng: lng ?? null }).catch(() => {});
       });
     }
 

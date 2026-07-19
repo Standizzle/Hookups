@@ -7,6 +7,7 @@ import { PinPad } from '../../components/consent/PinPad.jsx';
 import { consentService } from '../../services/consent.js';
 import { usersService } from '../../services/users.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { getQuickLocation } from '../../utils/geo.js';
 
 const METHODS = [
   { id: 'qr',     icon: '📱', label: 'QR Code',      desc: 'Show a QR to scan' },
@@ -46,6 +47,7 @@ export function ConsentScreen() {
   const [loading,    setLoading]    = useState(false);
   const [blockedReason, setBlockedReason] = useState(null);
   const [pendingPin, setPendingPin] = useState('');
+  const [pendingLoc, setPendingLoc] = useState(null);
 
   const GATE_REASONS = ['NO_PARENTAL_LINK', 'LEVEL_BLOCKED', 'OVERRIDE_DENIED', 'OVERRIDE_PENDING'];
 
@@ -94,7 +96,7 @@ export function ConsentScreen() {
     if (step !== 'blocked' || blockedReason !== 'OVERRIDE_PENDING') return;
     const interval = setInterval(async () => {
       try {
-        const data = await consentService.confirm(consentId, { pin: pendingPin, agreedToLocation: locationAgree });
+        const data = await consentService.confirm(consentId, { pin: pendingPin, agreedToLocation: locationAgree, lat: pendingLoc?.lat, lng: pendingLoc?.lng });
         setResult(data);
         setStep('confirmed');
       } catch (err) {
@@ -102,7 +104,7 @@ export function ConsentScreen() {
       }
     }, 4000);
     return () => clearInterval(interval);
-  }, [step, blockedReason, consentId, pendingPin, locationAgree]);
+  }, [step, blockedReason, consentId, pendingPin, pendingLoc, locationAgree]);
 
   // ── Requester flow ──────────────────────────────────────────────────────────
   async function findPartner() {
@@ -154,8 +156,11 @@ export function ConsentScreen() {
 
   async function handleConfirmPIN(pin, reset, setPinError) {
     setLoading(true);
+    // Grabbed on every confirm attempt, not just a duress one — the app
+    // never knows which case it is, so behavior must be identical either way.
+    const loc = await getQuickLocation();
     try {
-      const data = await consentService.confirm(consentId, { pin, agreedToLocation: locationAgree });
+      const data = await consentService.confirm(consentId, { pin, agreedToLocation: locationAgree, lat: loc?.lat, lng: loc?.lng });
       setResult(data);
       setStep('confirmed');
     } catch (err) {
@@ -163,6 +168,7 @@ export function ConsentScreen() {
         // PIN was correct — this is a parental-controls block, not a wrong PIN
         setBlockedReason(err.code);
         setPendingPin(pin);
+        setPendingLoc(loc);
         setStep('blocked');
       } else {
         reset();

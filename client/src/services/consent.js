@@ -9,8 +9,8 @@ export const consentService = {
     return api.get(`/consent/${consentId}`);
   },
 
-  async confirm(consentId, { pin, agreedToLocation }) {
-    return api.post(`/consent/${consentId}/confirm`, { pin, agreedToLocation });
+  async confirm(consentId, { pin, agreedToLocation, lat, lng }) {
+    return api.post(`/consent/${consentId}/confirm`, { pin, agreedToLocation, lat, lng });
   },
 
   async revoke(consentId, { pin, reason }) {
