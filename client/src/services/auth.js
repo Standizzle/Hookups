@@ -23,6 +23,20 @@ export const authService = {
     return data;
   },
 
+  async forgotPin(phone) {
+    return api.post('/auth/forgot-pin', { phone });
+  },
+
+  async resetPin({ phone, code, newPin }) {
+    const data = await api.post('/auth/reset-pin', { phone, code, newPin });
+    if (data.token) setToken(data.token);
+    return data;
+  },
+
+  async setDuressPin({ currentPin, duressPin }) {
+    return api.patch('/auth/duress-pin', { currentPin, duressPin });
+  },
+
   async getMe() {
     return api.get('/auth/me');
   },
