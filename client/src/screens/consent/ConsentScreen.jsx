@@ -47,6 +47,38 @@ export function ConsentScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingId]);
 
+  // Requester: poll while waiting for the partner to confirm
+  useEffect(() => {
+    if (step !== 'waiting' || !consentId) return;
+    const interval = setInterval(async () => {
+      try {
+        await consentService.getDisclosure(consentId);
+        // still pending — keep waiting
+      } catch (err) {
+        if (err.status !== 409) return;
+        const finalStatus = err.body?.status;
+        if (finalStatus === 'mutual') {
+          const { records } = await consentService.list({});
+          const record = records.find((r) => r.id === consentId);
+          if (record) {
+            setResult({
+              status: record.status,
+              recordId: record.recordId,
+              confirmedAt: record.confirmedAt,
+              expiresAt: record.expiresAt,
+              locationSharing: record.locationSharing,
+            });
+            setStep('confirmed');
+          }
+        } else {
+          // expired or revoked before confirmation
+          clearInterval(interval);
+        }
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [step, consentId]);
+
   // ── Requester flow ──────────────────────────────────────────────────────────
   async function findPartner() {
     setLoading(true);
@@ -320,6 +352,17 @@ export function ConsentScreen() {
               Expires {new Date(result.expiresAt).toLocaleString()}<br />
               {result.locationSharing && '📍 Live location sharing is active'}
             </p>
+            {result.locationSharing && (
+              <button
+                className="btn btn-primary"
+                style={{ marginBottom: 10 }}
+                onClick={() => navigate(`/livemap/${consentId}`, {
+                  state: { partnerName: role === 'consenter' ? disclosure?.requester?.name : partner?.fullName },
+                })}
+              >
+                📍 Open Live Map
+              </button>
+            )}
             <button className="btn btn-primary" onClick={() => navigate('/home')}>Done</button>
             <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => navigate('/logs')}>View logs</button>
           </div>

@@ -3,7 +3,6 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
-import { createServer } from 'http';
 import { Server as SocketIO } from 'socket.io';
 import { redis } from './src/db/client.js';
 
@@ -65,8 +64,10 @@ await fastify.register(locationRoutes, { prefix: '/location' });
 fastify.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }));
 
 // ── Socket.io (live location) ──────────────────────────────────────────────────
-const httpServer = createServer(fastify.server);
-const io = new SocketIO(httpServer, {
+// Attach directly to Fastify's underlying http.Server — it's the one that actually
+// gets listen()'d below. Wrapping it in a fresh createServer() would produce a
+// second, never-listening server that Socket.io talks to and no traffic ever reaches.
+const io = new SocketIO(fastify.server, {
   cors: { origin: CLIENT_ORIGIN, credentials: true },
 });
 registerLocationSocket(io);

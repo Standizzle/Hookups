@@ -30,6 +30,7 @@ async function request(method, path, body) {
     const err = new Error(data.error ?? `HTTP ${res.status}`);
     err.code   = data.code;
     err.status = res.status;
+    err.body   = data;
     throw err;
   }
 
