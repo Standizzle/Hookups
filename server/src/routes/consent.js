@@ -10,8 +10,11 @@ const RequestSchema = z.object({
   method:          z.enum(['nfc', 'airdrop', 'qr', 'manual']),
   expiresInMinutes: z.number().min(5).max(1440).default(60),
   terms: z.object({
-    physicalIntimacy: z.boolean().default(false),
-    kissingAffection: z.boolean().default(false),
+    holdingHandsHugging:   z.boolean().default(false),
+    kissingAffection:      z.boolean().default(false),
+    touchingAboveClothing: z.boolean().default(false),
+    touchingUnderClothing: z.boolean().default(false),
+    sexualIntimacy:        z.boolean().default(false),
     photosVideo:      z.boolean().default(false),
     overnightStays:   z.boolean().default(false),
     safeWord:         z.string().max(50).default(''),
@@ -76,8 +79,11 @@ export default async function consentRoutes(fastify) {
         verified: !!record.requester.verifiedAt,
       },
       terms: {
-        physicalIntimacy: record.physicalIntimacy,
-        kissingAffection: record.kissingAffection,
+        holdingHandsHugging:   record.holdingHandsHugging,
+        kissingAffection:      record.kissingAffection,
+        touchingAboveClothing: record.touchingAboveClothing,
+        touchingUnderClothing: record.touchingUnderClothing,
+        sexualIntimacy:        record.sexualIntimacy,
         photosVideo:      record.photosVideo,
         overnightStays:   record.overnightStays,
         safeWord:         record.safeWord,
@@ -108,12 +114,26 @@ export default async function consentRoutes(fastify) {
       triggerDuress({ userId: req.userId, lat: null, lng: null }).catch(() => {});
     }
 
-    const record = await confirmConsent({
-      recordId:        req.params.id,
-      userId:          req.userId,
-      agreedToLocation: body.data.agreedToLocation,
-      ipB:             req.ip,
-    });
+    let record;
+    try {
+      record = await confirmConsent({
+        recordId:        req.params.id,
+        userId:          req.userId,
+        agreedToLocation: body.data.agreedToLocation,
+        ipB:             req.ip,
+      });
+    } catch (err) {
+      const GATE_MESSAGES = {
+        NO_PARENTAL_LINK: "You need a linked parent/guardian to confirm this.",
+        LEVEL_BLOCKED:    "This exceeds what's permitted for your account.",
+        OVERRIDE_DENIED:  'Your parent declined this request.',
+        OVERRIDE_PENDING: "This needs your parent's approval — they've been notified.",
+      };
+      if (err.code && GATE_MESSAGES[err.code]) {
+        return reply.status(403).send({ error: GATE_MESSAGES[err.code], code: err.code });
+      }
+      throw err;
+    }
 
     return {
       status:    record.status,

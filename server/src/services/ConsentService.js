@@ -1,5 +1,7 @@
 import { prisma } from '../db/client.js';
 import { signRecord, canonicalConsentJSON, sha256, hashIP } from './CryptoService.js';
+import { checkParentalGate } from './ParentalGateService.js';
+import { computeRequestedLevel } from '../utils/parentalLevel.js';
 
 function generateRecordId() {
   const now = new Date();
@@ -25,8 +27,11 @@ export async function createConsentRequest({ requesterId, consenterId, terms, me
       lat:             location?.lat,
       lng:             location?.lng,
       placeName:       location?.placeName,
-      physicalIntimacy: terms.physicalIntimacy ?? false,
-      kissingAffection: terms.kissingAffection ?? false,
+      holdingHandsHugging:   terms.holdingHandsHugging ?? false,
+      kissingAffection:      terms.kissingAffection ?? false,
+      touchingAboveClothing: terms.touchingAboveClothing ?? false,
+      touchingUnderClothing: terms.touchingUnderClothing ?? false,
+      sexualIntimacy:        terms.sexualIntimacy ?? false,
       photosVideo:      terms.photosVideo ?? false,
       overnightStays:   terms.overnightStays ?? false,
       safeWord:         terms.safeWord ?? '',
@@ -44,6 +49,16 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
   if (record.status !== 'pending') throw new Error('Record is not pending');
   if (record.consenterId !== userId) throw new Error('Wrong user');
   if (new Date() > record.expiresAt) throw new Error('Consent request expired');
+
+  const requestedLevel = computeRequestedLevel(record);
+  const gate = await checkParentalGate({
+    userId, requestedLevel, consentRecordId: record.id, requesterId: record.requesterId,
+  });
+  if (!gate.allowed) {
+    const err = new Error('Blocked by parental controls');
+    err.code = gate.reason;
+    throw err;
+  }
 
   // Find previous record between this pair for chain hash
   const prev = await prisma.consentRecord.findFirst({

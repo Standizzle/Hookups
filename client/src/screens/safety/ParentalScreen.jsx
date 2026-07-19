@@ -81,9 +81,11 @@ function LevelControls({ link, onSaved }) {
 export function ParentalScreen() {
   const navigate = useNavigate();
   const [links, setLinks] = useState({ asParent: [], asMinor: [] });
+  const [overrides, setOverrides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [acceptingId, setAcceptingId] = useState(null);
+  const [decidingId, setDecidingId] = useState(null);
 
   const [minorPhone, setMinorPhone] = useState('');
   const [sending, setSending] = useState(false);
@@ -99,7 +101,15 @@ export function ParentalScreen() {
     }
   }
 
-  useEffect(() => { loadLinks(); }, []);
+  async function loadOverrides() {
+    try {
+      setOverrides(await parentalService.overrides());
+    } catch {
+      // non-fatal — just means we don't show the section
+    }
+  }
+
+  useEffect(() => { loadLinks(); loadOverrides(); }, []);
 
   async function acceptLink(id) {
     setAcceptingId(id);
@@ -110,6 +120,19 @@ export function ParentalScreen() {
       setError(err.message);
     } finally {
       setAcceptingId(null);
+    }
+  }
+
+  async function decideOverride(id, action) {
+    setDecidingId(id);
+    try {
+      if (action === 'approve') await parentalService.approveOverride(id);
+      else await parentalService.denyOverride(id);
+      await loadOverrides();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDecidingId(null);
     }
   }
 
@@ -147,6 +170,28 @@ export function ParentalScreen() {
 
         {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
         {loading && <p className="t-body">Loading…</p>}
+
+        {!loading && overrides.length > 0 && (
+          <>
+            <p className="t-label" style={{ marginBottom: 8 }}>Approval requests</p>
+            {overrides.map((o) => (
+              <div key={o.id} className="card" style={{ marginBottom: 10, borderColor: 'rgba(239,68,68,0.3)' }}>
+                <p className="t-body" style={{ marginBottom: 10 }}>
+                  <strong style={{ color: 'var(--ink)' }}>{o.minor.fullName}</strong> wants to confirm a Level {o.requestedLevel} consent with <strong style={{ color: 'var(--ink)' }}>{o.requester.fullName}</strong>.
+                </p>
+                <p className="t-small" style={{ marginBottom: 10 }}>Record {o.recordId} · {new Date(o.requestedAt).toLocaleString()}</p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-danger btn-sm" style={{ flex: 1 }} onClick={() => decideOverride(o.id, 'deny')} disabled={decidingId === o.id}>
+                    Deny
+                  </button>
+                  <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => decideOverride(o.id, 'approve')} disabled={decidingId === o.id}>
+                    {decidingId === o.id ? '…' : 'Approve'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
 
         {!loading && pendingAsMinor.length > 0 && (
           <>

@@ -59,8 +59,11 @@ export function canonicalConsentJSON(record) {
     requesterId:     record.requesterId,
     consenterId:     record.consenterId,
     terms: {
-      physicalIntimacy: record.physicalIntimacy,
-      kissingAffection: record.kissingAffection,
+      holdingHandsHugging:   record.holdingHandsHugging,
+      kissingAffection:      record.kissingAffection,
+      touchingAboveClothing: record.touchingAboveClothing,
+      touchingUnderClothing: record.touchingUnderClothing,
+      sexualIntimacy:        record.sexualIntimacy,
       photosVideo:      record.photosVideo,
       overnightStays:   record.overnightStays,
       safeWord:         record.safeWord,

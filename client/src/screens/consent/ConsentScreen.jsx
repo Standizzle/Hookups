@@ -33,7 +33,8 @@ export function ConsentScreen() {
   const [partner,      setPartner]      = useState(preselectedPartner);
   const [partnerError, setPartnerError] = useState('');
   const [terms,  setTerms]  = useState({
-    physicalIntimacy: false, kissingAffection: false,
+    holdingHandsHugging: false, kissingAffection: false,
+    touchingAboveClothing: false, touchingUnderClothing: false, sexualIntimacy: false,
     photosVideo: false, overnightStays: false,
     safeWord: '', locationSharing: false,
   });
@@ -43,6 +44,10 @@ export function ConsentScreen() {
   const [deeplink,   setDeeplink]   = useState('');
   const [result,     setResult]     = useState(null);
   const [loading,    setLoading]    = useState(false);
+  const [blockedReason, setBlockedReason] = useState(null);
+  const [pendingPin, setPendingPin] = useState('');
+
+  const GATE_REASONS = ['NO_PARENTAL_LINK', 'LEVEL_BLOCKED', 'OVERRIDE_DENIED', 'OVERRIDE_PENDING'];
 
   // Deeplink/QR entry (hookups://consent/<id>) — fetch disclosure immediately
   useEffect(() => {
@@ -81,6 +86,23 @@ export function ConsentScreen() {
     }, 3000);
     return () => clearInterval(interval);
   }, [step, consentId]);
+
+  // Consenter: while waiting on a Level 3 parental override, retry confirm
+  // periodically with the same (already-correct) PIN — resolves automatically
+  // once the parent approves or denies.
+  useEffect(() => {
+    if (step !== 'blocked' || blockedReason !== 'OVERRIDE_PENDING') return;
+    const interval = setInterval(async () => {
+      try {
+        const data = await consentService.confirm(consentId, { pin: pendingPin, agreedToLocation: locationAgree });
+        setResult(data);
+        setStep('confirmed');
+      } catch (err) {
+        if (err.code && err.code !== 'OVERRIDE_PENDING') setBlockedReason(err.code);
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [step, blockedReason, consentId, pendingPin, locationAgree]);
 
   // ── Requester flow ──────────────────────────────────────────────────────────
   async function findPartner() {
@@ -137,8 +159,15 @@ export function ConsentScreen() {
       setResult(data);
       setStep('confirmed');
     } catch (err) {
-      reset();
-      setPinError(err.message ?? 'Incorrect PIN');
+      if (err.code && GATE_REASONS.includes(err.code)) {
+        // PIN was correct — this is a parental-controls block, not a wrong PIN
+        setBlockedReason(err.code);
+        setPendingPin(pin);
+        setStep('blocked');
+      } else {
+        reset();
+        setPinError(err.message ?? 'Incorrect PIN');
+      }
     } finally {
       setLoading(false);
     }
@@ -201,11 +230,14 @@ export function ConsentScreen() {
               </p>
             )}
             {[
-              { key: 'kissingAffection',  label: 'Kissing & Affection' },
-              { key: 'physicalIntimacy',  label: 'Physical Intimacy' },
-              { key: 'overnightStays',    label: 'Overnight Stays' },
-              { key: 'photosVideo',       label: 'Photos / Video' },
-              { key: 'locationSharing',   label: '📍 Live Location Sharing' },
+              { key: 'holdingHandsHugging',   label: 'Holding Hands & Hugging' },
+              { key: 'kissingAffection',      label: 'Kissing & Affection' },
+              { key: 'touchingAboveClothing', label: 'Touching Above Clothing' },
+              { key: 'touchingUnderClothing', label: 'Touching Under Clothing' },
+              { key: 'sexualIntimacy',        label: 'Sexual Intimacy' },
+              { key: 'overnightStays',        label: 'Overnight Stays' },
+              { key: 'photosVideo',           label: 'Photos / Video' },
+              { key: 'locationSharing',       label: '📍 Live Location Sharing' },
             ].map(({ key, label }) => (
               <label key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <span style={{ fontSize: 14, fontWeight: 500 }}>{label}</span>
@@ -309,10 +341,13 @@ export function ConsentScreen() {
             <div className="card" style={{ marginBottom: 16 }}>
               <p className="t-label" style={{ marginBottom: 10 }}>Agreed terms</p>
               {[
-                ['Kissing & Affection', disclosure.terms.kissingAffection],
-                ['Physical Intimacy',   disclosure.terms.physicalIntimacy],
-                ['Overnight Stays',     disclosure.terms.overnightStays],
-                ['Photos / Video',      disclosure.terms.photosVideo],
+                ['Holding Hands & Hugging',  disclosure.terms.holdingHandsHugging],
+                ['Kissing & Affection',      disclosure.terms.kissingAffection],
+                ['Touching Above Clothing',  disclosure.terms.touchingAboveClothing],
+                ['Touching Under Clothing',  disclosure.terms.touchingUnderClothing],
+                ['Sexual Intimacy',          disclosure.terms.sexualIntimacy],
+                ['Overnight Stays',          disclosure.terms.overnightStays],
+                ['Photos / Video',           disclosure.terms.photosVideo],
               ].map(([label, agreed]) => agreed && (
                 <div key={label} style={{ fontSize: 13, marginBottom: 6 }}>✅ {label}</div>
               ))}
@@ -341,6 +376,41 @@ export function ConsentScreen() {
             </p>
 
             <PinPad onComplete={handleConfirmPIN} label="Enter your PIN to confirm" disabled={loading} />
+          </div>
+        )}
+
+        {/* STEP: Blocked by parental controls */}
+        {step === 'blocked' && (
+          <div className="anim-fade-up" style={{ textAlign: 'center', paddingTop: 32 }}>
+            {blockedReason === 'OVERRIDE_PENDING' ? (
+              <>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
+                <div className="t-h2" style={{ marginBottom: 8 }}>Waiting for approval</div>
+                <p className="t-body" style={{ marginBottom: 20 }}>
+                  This needs your parent's approval. We've notified them — this screen will update automatically once they respond.
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--amber)', animation: 'pulse-ring 1.5s ease infinite' }} />
+                  <span className="t-small">Checking…</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>🛡️</div>
+                <div className="t-h2" style={{ marginBottom: 8 }}>
+                  {blockedReason === 'OVERRIDE_DENIED' ? 'Request declined' : 'Not permitted'}
+                </div>
+                <p className="t-body" style={{ marginBottom: 20 }}>
+                  {blockedReason === 'NO_PARENTAL_LINK' && 'You need a linked parent or guardian before you can confirm this.'}
+                  {blockedReason === 'LEVEL_BLOCKED' && "This exceeds what's permitted for your account and can't be overridden."}
+                  {blockedReason === 'OVERRIDE_DENIED' && 'Your parent declined this request.'}
+                </p>
+              </>
+            )}
+            <button className="btn btn-primary" onClick={() => navigate('/home')}>Back to home</button>
+            {blockedReason === 'NO_PARENTAL_LINK' && (
+              <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => navigate('/parental')}>Set up parental link</button>
+            )}
           </div>
         )}
 

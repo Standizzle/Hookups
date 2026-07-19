@@ -87,9 +87,12 @@ model ConsentRecord {
   requester   User     @relation("Requester", fields: [requesterId], references: [id])
   consenter   User     @relation("Consenter", fields: [consenterId], references: [id])
 
-  // Terms
-  physicalIntimacy Boolean @default(false)
-  kissingAffection Boolean @default(false)
+  // Terms — the first five map directly onto Parental Levels 1-5
+  holdingHandsHugging   Boolean @default(false) // Level 1
+  kissingAffection      Boolean @default(false) // Level 2
+  touchingAboveClothing Boolean @default(false) // Level 3 — override required for a minor
+  touchingUnderClothing Boolean @default(false) // Level 4 — blocked for a minor
+  sexualIntimacy        Boolean @default(false) // Level 5 — blocked for a minor
   photosVideo      Boolean @default(false)
   overnightStays   Boolean @default(false)
   safeWord         String  @default("")
@@ -122,6 +125,7 @@ model ConsentRecord {
 
   locationShares LocationShare[]
   activityLogs   ActivityLog[]
+  overrides      ParentalOverride[]
 
   createdAt DateTime @default(now())
 
@@ -180,8 +184,25 @@ model ParentalLink {
   verifiedAt           DateTime?
   createdAt            DateTime @default(now())
 
+  overrides ParentalOverride[]
+
   @@unique([parentId, minorId])
   @@map("parental_links")
+}
+
+model ParentalOverride {
+  id              String        @id @default(uuid())
+  parentalLinkId  String
+  parentalLink    ParentalLink  @relation(fields: [parentalLinkId], references: [id])
+  consentRecordId String
+  consentRecord   ConsentRecord @relation(fields: [consentRecordId], references: [id])
+  requestedLevel  Int
+  status          String        @default("pending") // pending | approved | denied
+  requestedAt     DateTime      @default(now())
+  respondedAt     DateTime?
+
+  @@unique([consentRecordId, parentalLinkId])
+  @@map("parental_overrides")
 }
 
 model GuardianContact {
