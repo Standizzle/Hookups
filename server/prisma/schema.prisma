@@ -21,6 +21,22 @@ model User {
   createdAt     DateTime  @default(now())
   deletedAt     DateTime?
 
+  // Billing — every account gets a 14-day trial from signup; after that,
+  // consent recording requires an active Subscription (owned or via a
+  // family plan's SubscriptionGuardian membership).
+  trialEndsAt   DateTime?
+
+  // Discovery profile
+  username      String?  @unique // Instagram-style handle, lowercase/numbers/underscore
+  university    String?
+  bio           String?
+  avatarUrl     String?
+  interests     String[] @default([])
+  discoverable  Boolean  @default(false)
+  lastLat       Float?
+  lastLng       Float?
+  lastLocatedAt DateTime?
+
   // Relations
   consentRequests  ConsentRecord[] @relation("Requester")
   consentConsents  ConsentRecord[] @relation("Consenter")
@@ -28,11 +44,94 @@ model User {
   partnerLinksB    PartnerLink[]   @relation("UserB")
   parentalAsParent ParentalLink[]  @relation("Parent")
   parentalAsMinor  ParentalLink[]  @relation("Minor")
+  relationshipsA   Relationship[]  @relation("RelUserA")
+  relationshipsB   Relationship[]  @relation("RelUserB")
+  hallPassEntries  HallPassEntry[]
   guardianContacts GuardianContact[]
   activityLogs     ActivityLog[]
   locationShares   LocationShare[]
+  matchesSent      Match[]  @relation("MatchFrom")
+  matchesReceived  Match[]  @relation("MatchTo")
+  meetupsProposed  Meetup[] @relation("MeetupProposer")
+  meetupsReceived  Meetup[] @relation("MeetupPartner")
+  photos           Photo[]
+  subscription     Subscription?   @relation("SubscriptionOwner")
+  guardianOf       SubscriptionGuardian[]
 
   @@map("users")
+}
+
+model Subscription {
+  id                   String    @id @default(uuid())
+  ownerId              String    @unique
+  owner                User      @relation("SubscriptionOwner", fields: [ownerId], references: [id])
+  plan                 String    // individual | family
+  status               String    @default("active") // active | past_due | canceled
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime  @default(now())
+  canceledAt           DateTime?
+
+  guardians SubscriptionGuardian[]
+
+  @@map("subscriptions")
+}
+
+// Additional guardians on a family plan, beyond the owner (+$1.99/mo each).
+// Children covered by the plan are NOT tracked here — they're derived from
+// active ParentalLink rows for the owner + these guardians, deduped by minor,
+// so a child linked to both parents only ever counts once.
+model SubscriptionGuardian {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  addedAt        DateTime     @default(now())
+
+  @@unique([subscriptionId, userId])
+  @@map("subscription_guardians")
+}
+
+model Photo {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  url       String
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("photos")
+}
+
+model Match {
+  id           String    @id @default(uuid())
+  fromId       String
+  toId         String
+  from         User      @relation("MatchFrom", fields: [fromId], references: [id])
+  to           User      @relation("MatchTo", fields: [toId], references: [id])
+  status       String    @default("pending") // pending | matched | declined
+  createdAt    DateTime  @default(now())
+  respondedAt  DateTime?
+
+  @@unique([fromId, toId])
+  @@map("matches")
+}
+
+model Meetup {
+  id          String    @id @default(uuid())
+  proposerId  String
+  partnerId   String
+  proposer    User      @relation("MeetupProposer", fields: [proposerId], references: [id])
+  partner     User      @relation("MeetupPartner", fields: [partnerId], references: [id])
+  place       String
+  scheduledAt DateTime
+  status      String    @default("pending") // pending | confirmed | declined | cancelled
+  createdAt   DateTime  @default(now())
+  confirmedAt DateTime?
+
+  @@map("meetups")
 }
 
 model ConsentRecord {
@@ -43,13 +142,17 @@ model ConsentRecord {
   requester   User     @relation("Requester", fields: [requesterId], references: [id])
   consenter   User     @relation("Consenter", fields: [consenterId], references: [id])
 
-  // Terms
-  physicalIntimacy Boolean @default(false)
-  kissingAffection Boolean @default(false)
+  // Terms — the first five map directly onto Parental Levels 1-5
+  holdingHandsHugging   Boolean @default(false) // Level 1
+  kissingAffection      Boolean @default(false) // Level 2
+  touchingAboveClothing Boolean @default(false) // Level 3 — override required for a minor
+  touchingUnderClothing Boolean @default(false) // Level 4 — blocked for a minor
+  sexualIntimacy        Boolean @default(false) // Level 5 — blocked for a minor
   photosVideo      Boolean @default(false)
   overnightStays   Boolean @default(false)
   safeWord         String  @default("")
-  locationSharing  Boolean @default(false)
+  locationRequested Boolean @default(false) // requester offered it in terms
+  locationSharing  Boolean @default(false)  // true only once both parties have agreed
 
   method    String  // nfc | airdrop | qr | manual
   status    String  @default("pending") // pending | mutual | expired | revoked
@@ -77,10 +180,61 @@ model ConsentRecord {
 
   locationShares LocationShare[]
   activityLogs   ActivityLog[]
+  overrides      ParentalOverride[]
+  relationshipApprovals RelationshipApproval[]
 
   createdAt DateTime @default(now())
 
   @@map("consent_records")
+}
+
+model Relationship {
+  id               String    @id @default(uuid())
+  userAId          String
+  userBId          String
+  userA            User      @relation("RelUserA", fields: [userAId], references: [id])
+  userB            User      @relation("RelUserB", fields: [userBId], references: [id])
+  status           String    @default("pending") // pending | active | ended
+  transparencyMode String    @default("private")  // private | notify | hall_pass
+  isPublic         Boolean   @default(false)
+  sealedAt         DateTime?
+  endedAt          DateTime?
+  endedById        String?
+  createdAt        DateTime  @default(now())
+
+  hallPassEntries HallPassEntry[]
+  approvals       RelationshipApproval[]
+
+  @@map("relationships")
+}
+
+model HallPassEntry {
+  id             String       @id @default(uuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id])
+  approvedUserId String
+  approvedUser   User         @relation(fields: [approvedUserId], references: [id])
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+
+  @@unique([relationshipId, approvedUserId])
+  @@map("hall_pass_entries")
+}
+
+model RelationshipApproval {
+  id               String        @id @default(uuid())
+  relationshipId   String
+  relationship     Relationship  @relation(fields: [relationshipId], references: [id])
+  consentRecordId  String
+  consentRecord    ConsentRecord @relation(fields: [consentRecordId], references: [id])
+  requestingUserId String        // the relationship member who wants to consent with someone off-list
+  thirdPartyId     String        // the person they want to consent with
+  status           String        @default("pending") // pending | approved | denied
+  requestedAt      DateTime      @default(now())
+  respondedAt      DateTime?
+
+  @@unique([consentRecordId, relationshipId])
+  @@map("relationship_approvals")
 }
 
 model LocationShare {
@@ -135,8 +289,25 @@ model ParentalLink {
   verifiedAt           DateTime?
   createdAt            DateTime @default(now())
 
+  overrides ParentalOverride[]
+
   @@unique([parentId, minorId])
   @@map("parental_links")
+}
+
+model ParentalOverride {
+  id              String        @id @default(uuid())
+  parentalLinkId  String
+  parentalLink    ParentalLink  @relation(fields: [parentalLinkId], references: [id])
+  consentRecordId String
+  consentRecord   ConsentRecord @relation(fields: [consentRecordId], references: [id])
+  requestedLevel  Int
+  status          String        @default("pending") // pending | approved | denied
+  requestedAt     DateTime      @default(now())
+  respondedAt     DateTime?
+
+  @@unique([consentRecordId, parentalLinkId])
+  @@map("parental_overrides")
 }
 
 model GuardianContact {

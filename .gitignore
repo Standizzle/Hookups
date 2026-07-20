@@ -7,3 +7,5 @@ dist/
 Thumbs.db
 server/prisma/migrations/*.sql.bak
 client/dist/
+server/uploads/*
+!server/uploads/.gitkeep

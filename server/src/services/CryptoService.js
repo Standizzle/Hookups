@@ -1,41 +1,64 @@
 import { createHash, generateKeyPairSync, sign, verify } from 'node:crypto';
+import { KMSClient, SignCommand, VerifyCommand } from '@aws-sdk/client-kms';
 
-// Load or generate signing key pair (ed25519)
-let _privateKey, _publicKey;
+// Production: an AWS KMS asymmetric key (KeySpec ECC_NIST_EDWARDS25519) does
+// the actual signing — the private key material never leaves KMS. Dev/CI:
+// an ephemeral in-process ed25519 keypair, generated fresh per process, so
+// signatures won't verify across restarts — that's expected and fine locally.
+const KMS_KEY_ID = process.env.AWS_KMS_KEY_ID || null;
+const kmsClient = KMS_KEY_ID ? new KMSClient({ region: process.env.AWS_REGION }) : null;
 
-function getKeyPair() {
-  if (_privateKey) return { privateKey: _privateKey, publicKey: _publicKey };
-
-  const envKey = process.env.CONSENT_SIGNING_KEY;
-  if (envKey) {
-    // Base64-encoded private key DER provided via env
-    _privateKey = Buffer.from(envKey, 'base64');
-    // In production, derive public key from private; for now generate ephemeral pair
-  }
-
-  // Dev: generate ephemeral pair (records won't verify across restarts — acceptable for dev)
-  const pair = generateKeyPairSync('ed25519');
-  _privateKey = pair.privateKey;
-  _publicKey  = pair.publicKey;
-
-  if (process.env.NODE_ENV !== 'production') {
-    console.warn('[CryptoService] Using ephemeral ed25519 keypair. Set CONSENT_SIGNING_KEY in production.');
-  }
-
-  return { privateKey: _privateKey, publicKey: _publicKey };
+if (!KMS_KEY_ID && process.env.NODE_ENV === 'production') {
+  console.warn('[CryptoService] AWS_KMS_KEY_ID is not set in production — falling back to an ephemeral dev keypair. Consent record signatures will not survive a restart.');
 }
 
-export function signRecord(canonicalJSON) {
-  const { privateKey } = getKeyPair();
+let _devPrivateKey, _devPublicKey;
+function getDevKeyPair() {
+  if (!_devPrivateKey) {
+    const pair = generateKeyPairSync('ed25519');
+    _devPrivateKey = pair.privateKey;
+    _devPublicKey  = pair.publicKey;
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[CryptoService] Using ephemeral ed25519 keypair (no AWS_KMS_KEY_ID set). Records won\'t verify across restarts — expected in dev.');
+    }
+  }
+  return { privateKey: _devPrivateKey, publicKey: _devPublicKey };
+}
+
+export async function signRecord(canonicalJSON) {
   const data = Buffer.from(canonicalJSON, 'utf8');
+
+  if (kmsClient) {
+    const res = await kmsClient.send(new SignCommand({
+      KeyId: KMS_KEY_ID,
+      Message: data,
+      MessageType: 'RAW',
+      SigningAlgorithm: 'ED25519_SHA_512',
+    }));
+    return Buffer.from(res.Signature).toString('base64');
+  }
+
+  const { privateKey } = getDevKeyPair();
   return sign(null, data, privateKey).toString('base64');
 }
 
-export function verifyRecord(canonicalJSON, signature) {
+export async function verifyRecord(canonicalJSON, signature) {
+  const data = Buffer.from(canonicalJSON, 'utf8');
+  const sig  = Buffer.from(signature, 'base64');
+
   try {
-    const { publicKey } = getKeyPair();
-    const data = Buffer.from(canonicalJSON, 'utf8');
-    const sig  = Buffer.from(signature, 'base64');
+    if (kmsClient) {
+      const res = await kmsClient.send(new VerifyCommand({
+        KeyId: KMS_KEY_ID,
+        Message: data,
+        MessageType: 'RAW',
+        Signature: sig,
+        SigningAlgorithm: 'ED25519_SHA_512',
+      }));
+      return !!res.SignatureValid;
+    }
+
+    const { publicKey } = getDevKeyPair();
     return verify(null, data, publicKey, sig);
   } catch {
     return false;
@@ -59,11 +82,15 @@ export function canonicalConsentJSON(record) {
     requesterId:     record.requesterId,
     consenterId:     record.consenterId,
     terms: {
-      physicalIntimacy: record.physicalIntimacy,
-      kissingAffection: record.kissingAffection,
+      holdingHandsHugging:   record.holdingHandsHugging,
+      kissingAffection:      record.kissingAffection,
+      touchingAboveClothing: record.touchingAboveClothing,
+      touchingUnderClothing: record.touchingUnderClothing,
+      sexualIntimacy:        record.sexualIntimacy,
       photosVideo:      record.photosVideo,
       overnightStays:   record.overnightStays,
       safeWord:         record.safeWord,
+      locationRequested: record.locationRequested,
       locationSharing:  record.locationSharing,
     },
     method:      record.method,

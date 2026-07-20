@@ -1,20 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
+import { discoverService } from '../../services/discover.js';
 
 const NAV = ['/home', '/consent', '/discover', '/logs', '/profile'];
-
-const MOCK_MATCHES = [
-  { id: 'm1', name: 'Lerato M.', avatar: '👩🏾', uni: 'UCT', mutual: ['Art', 'Music'], compatibility: 94, status: 'matched', time: '2h ago' },
-  { id: 'm2', name: 'Kagiso D.', avatar: '👨🏾', uni: 'UWC', mutual: ['Sport', 'Travel'], compatibility: 81, status: 'matched', time: '1d ago' },
-  { id: 'm3', name: 'Zara N.', avatar: '👩🏽', uni: 'Stellenbosch', mutual: ['Food', 'Music'], compatibility: 76, status: 'pending', time: '3d ago' },
-];
-
-const SUGGESTED = [
-  { id: 's1', name: 'Ayesha P.', avatar: '👩🏽', uni: 'UCT', mutual: ['Yoga', 'Coffee'], compatibility: 88 },
-  { id: 's2', name: 'Luca F.', avatar: '👨🏻', uni: 'CPUT', mutual: ['Music', 'Gaming'], compatibility: 72 },
-];
 
 function CompatBar({ value }) {
   const color = value >= 85 ? 'var(--sealed)' : value >= 70 ? 'var(--accent)' : 'var(--accent2)';
@@ -28,10 +19,65 @@ function CompatBar({ value }) {
   );
 }
 
+function timeAgo(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export function MatchupsScreen() {
   const navigate = useNavigate();
   const nav = (i) => navigate(NAV[i]);
   const [tab, setTab] = useState('matches');
+
+  const [matches, setMatches] = useState([]);
+  const [suggested, setSuggested] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionLoading, setActionLoading] = useState(null);
+
+  async function loadMatches() {
+    setMatches(await discoverService.matches());
+  }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [m, s] = await Promise.all([discoverService.matches(), discoverService.nearby()]);
+        setMatches(m);
+        setSuggested(s);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function act(person, action) {
+    setActionLoading(person.id);
+    try {
+      const res = await discoverService.action(person.id, action);
+      setSuggested((prev) => prev.filter((p) => p.id !== person.id));
+      if (res.matched) {
+        // Refetch rather than splice client-side — a match reveals the
+        // partner's real name server-side, which we don't have locally.
+        await loadMatches();
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  function startConsent(partner) {
+    navigate('/consent', { state: { partner: { id: partner.id, fullName: partner.name, verified: partner.verified } } });
+  }
 
   return (
     <div className="phone-inner">
@@ -58,84 +104,96 @@ export function MatchupsScreen() {
           ))}
         </div>
 
-        {tab === 'matches' && (
+        {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+        {loading && <p className="t-body" style={{ textAlign: 'center', marginTop: 20 }}>Loading…</p>}
+
+        {!loading && tab === 'matches' && (
           <div>
-            {MOCK_MATCHES.map((m) => (
+            {matches.map((m) => (
               <div key={m.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', fontSize: 22,
-                    background: 'var(--bg)', border: '1.5px solid var(--border2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {m.avatar}
-                  </div>
+                  <Avatar avatarUrl={m.partner.avatarUrl} seed={m.partner.id} label={m.partner.name ?? m.partner.handle} size={44} />
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</span>
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{m.partner.name ?? m.partner.handle}</span>
                       <span className={`pill ${m.status === 'matched' ? 'pill-sealed' : 'pill-pending'}`}>
-                        {m.status === 'matched' ? '✓ Matched' : '⏳ Pending'}
+                        {m.status === 'matched' ? '✓ Matched' : m.direction === 'received' ? '⏳ Wants to match' : '⏳ Pending'}
                       </span>
                     </div>
-                    <span className="t-small">{m.uni} · {m.time}</span>
+                    <span className="t-small">
+                      {m.partner.name && m.partner.handle ? `${m.partner.handle} · ` : ''}{m.partner.university} · {timeAgo(m.createdAt)}
+                    </span>
                   </div>
                 </div>
                 <CompatBar value={m.compatibility} />
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
-                  <span className="t-small">Mutual:</span>
-                  {m.mutual.map((i) => (
-                    <span key={i} className="pill pill-sky" style={{ fontSize: 10 }}>{i}</span>
-                  ))}
-                </div>
+                {m.sharedInterests.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
+                    <span className="t-small">Mutual:</span>
+                    {m.sharedInterests.map((i) => (
+                      <span key={i} className="pill pill-sky" style={{ fontSize: 10 }}>{i}</span>
+                    ))}
+                  </div>
+                )}
                 {m.status === 'matched' && (
                   <button
                     className="btn btn-primary btn-sm"
                     style={{ marginTop: 12 }}
-                    onClick={() => navigate('/consent')}
+                    onClick={() => startConsent(m.partner)}
                   >
                     ✅ Start consent
                   </button>
                 )}
+                {m.status === 'pending' && m.direction === 'received' && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ marginTop: 12 }}
+                    onClick={() => act({ id: m.partner.id }, 'connect')}
+                  >
+                    💫 Match back
+                  </button>
+                )}
               </div>
             ))}
+            {matches.length === 0 && (
+              <p className="t-body" style={{ textAlign: 'center', marginTop: 20 }}>No matches yet — check Suggested.</p>
+            )}
           </div>
         )}
 
-        {tab === 'suggested' && (
+        {!loading && tab === 'suggested' && (
           <div>
             <p className="t-body" style={{ marginBottom: 16 }}>Based on your interests and connections.</p>
-            {SUGGESTED.map((s) => (
+            {suggested.map((s) => (
               <div key={s.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', fontSize: 22,
-                    background: 'var(--bg)', border: '1.5px solid var(--border2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {s.avatar}
-                  </div>
+                  <Avatar avatarUrl={s.avatarUrl} seed={s.id} label={s.handle} size={44} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name}</div>
-                    <span className="t-small">{s.uni}</span>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.handle}</div>
+                    <span className="t-small">{s.university}</span>
                   </div>
                 </div>
                 <CompatBar value={s.compatibility} />
-                <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-                  <span className="t-small">Mutual:</span>
-                  {s.mutual.map((i) => (
-                    <span key={i} className="pill pill-sky" style={{ fontSize: 10 }}>{i}</span>
-                  ))}
-                </div>
+                {s.sharedInterests.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                    <span className="t-small">Mutual:</span>
+                    {s.sharedInterests.map((i) => (
+                      <span key={i} className="pill pill-sky" style={{ fontSize: 10 }}>{i}</span>
+                    ))}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => navigate('/suggestions')}>
+                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => act(s, 'skip')} disabled={actionLoading === s.id}>
                     Skip
                   </button>
-                  <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => navigate('/consent')}>
-                    Connect
+                  <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => act(s, 'connect')} disabled={actionLoading === s.id}>
+                    {actionLoading === s.id ? '…' : 'Connect'}
                   </button>
                 </div>
               </div>
             ))}
+            {suggested.length === 0 && (
+              <p className="t-body" style={{ textAlign: 'center', marginTop: 20 }}>No new suggestions right now.</p>
+            )}
           </div>
         )}
       </div>

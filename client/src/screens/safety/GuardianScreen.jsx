@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
+import { guardianService } from '../../services/guardian.js';
 
 const ALERT_TYPES = [
   { type: 'silent_checkin', icon: '🤫', label: 'Silent Check-In', desc: 'Sends a quiet "I\'m OK" to your circle' },
@@ -8,41 +9,88 @@ const ALERT_TYPES = [
   { type: 'emergency', icon: '🚨', label: 'Emergency', desc: 'Urgent alert with location to all contacts' },
 ];
 
-function loadContacts() {
-  try { return JSON.parse(localStorage.getItem('guardian_contacts') || '[]'); } catch { return []; }
+const RELATIONS = ['parent', 'sibling', 'friend', 'partner', 'other'];
+
+function getLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve({});
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve({}),
+      { timeout: 3000 }
+    );
+  });
 }
-function saveContacts(c) { localStorage.setItem('guardian_contacts', JSON.stringify(c)); }
 
 export function GuardianScreen() {
   const navigate = useNavigate();
-  const [contacts, setContacts] = useState(loadContacts);
+  const [contacts, setContacts] = useState([]);
+  const [loadingContacts, setLoadingContacts] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [relation, setRelation] = useState('friend');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [alertSent, setAlertSent] = useState(null);
+  const [alertLoading, setAlertLoading] = useState(null);
   const [deleting, setDeleting] = useState(null);
 
-  function addContact() {
-    if (!name.trim() || !phone.trim()) return;
-    const updated = [...contacts, { id: Date.now().toString(), name: name.trim(), phone: phone.trim() }];
-    setContacts(updated);
-    saveContacts(updated);
-    setName('');
-    setPhone('');
-    setShowAdd(false);
+  async function loadContacts() {
+    setLoadingContacts(true);
+    try {
+      const data = await guardianService.listContacts();
+      setContacts(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingContacts(false);
+    }
   }
 
-  function removeContact(id) {
-    const updated = contacts.filter((c) => c.id !== id);
-    setContacts(updated);
-    saveContacts(updated);
-    setDeleting(null);
+  useEffect(() => { loadContacts(); }, []);
+
+  async function addContact() {
+    if (!name.trim() || !phone.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      await guardianService.addContact({ name: name.trim(), phone: phone.trim(), relation });
+      setName('');
+      setPhone('');
+      setRelation('friend');
+      setShowAdd(false);
+      await loadContacts();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeContact(id) {
+    try {
+      await guardianService.removeContact(id);
+      setDeleting(null);
+      await loadContacts();
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function sendAlert(type) {
     const label = ALERT_TYPES.find((a) => a.type === type)?.label ?? type;
-    setAlertSent(label);
-    setTimeout(() => setAlertSent(null), 3000);
+    setAlertLoading(type);
+    try {
+      const loc = await getLocation();
+      await guardianService.sendAlert(type, loc);
+      setAlertSent(label);
+      setTimeout(() => setAlertSent(null), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAlertLoading(null);
+    }
   }
 
   return (
@@ -67,9 +115,11 @@ export function GuardianScreen() {
           <div className="t-h2">🛡 Trusted Circle</div>
         </div>
 
+        {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+
         {/* Alert buttons */}
         <p className="t-label" style={{ marginBottom: 10 }}>Send an alert</p>
-        {contacts.length === 0 && (
+        {!loadingContacts && contacts.length === 0 && (
           <p className="t-body" style={{ marginBottom: 16, fontSize: 13, color: 'var(--amber)' }}>
             Add at least one contact to send alerts.
           </p>
@@ -85,13 +135,13 @@ export function GuardianScreen() {
                 textAlign: 'left',
                 borderColor: type === 'emergency' ? 'rgba(239,68,68,0.3)' : undefined,
               }}
-              disabled={contacts.length === 0}
+              disabled={contacts.length === 0 || alertLoading === type}
               onClick={() => sendAlert(type)}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 24 }}>{icon}</span>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{alertLoading === type ? 'Sending…' : label}</div>
                   <p className="t-small">{desc}</p>
                 </div>
               </div>
@@ -128,15 +178,25 @@ export function GuardianScreen() {
               value={phone}
               type="tel"
               onChange={(e) => setPhone(e.target.value)}
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 10 }}
             />
-            <button className="btn btn-primary btn-sm" onClick={addContact} disabled={!name.trim() || !phone.trim()}>
-              Save contact
+            <select
+              className="input-field"
+              value={relation}
+              onChange={(e) => setRelation(e.target.value)}
+              style={{ marginBottom: 12 }}
+            >
+              {RELATIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <button className="btn btn-primary btn-sm" onClick={addContact} disabled={!name.trim() || !phone.trim() || saving}>
+              {saving ? 'Saving…' : 'Save contact'}
             </button>
           </div>
         )}
 
-        {contacts.length === 0 && !showAdd && (
+        {loadingContacts && <p className="t-body" style={{ textAlign: 'center', marginTop: 8 }}>Loading…</p>}
+
+        {!loadingContacts && contacts.length === 0 && !showAdd && (
           <p className="t-body" style={{ textAlign: 'center', marginTop: 8 }}>
             No contacts yet. Add someone you trust.
           </p>
@@ -153,7 +213,7 @@ export function GuardianScreen() {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>{c.name}</div>
-              <p className="t-small">{c.phone}</p>
+              <p className="t-small">{c.phone} · {c.relation}</p>
             </div>
             {deleting === c.id ? (
               <div style={{ display: 'flex', gap: 6 }}>

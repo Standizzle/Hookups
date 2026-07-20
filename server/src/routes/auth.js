@@ -2,6 +2,7 @@ import { prisma } from '../db/client.js';
 import { hashPIN, verifyPIN, isValidPIN, pinsAreEqual } from '../services/PINService.js';
 import { SMSService } from '../services/SMSService.js';
 import { redis } from '../db/client.js';
+import { isMinor } from '../utils/age.js';
 import { z } from 'zod';
 
 const SignupSchema = z.object({
@@ -17,6 +18,23 @@ const SetPINSchema = z.object({
 const LoginSchema = z.object({
   phone: z.string(),
   pin:   z.string().regex(/^\d{4}$/),
+  lat:   z.number().optional(),
+  lng:   z.number().optional(),
+});
+
+const ForgotPinSchema = z.object({
+  phone: z.string(),
+});
+
+const ResetPinSchema = z.object({
+  phone:  z.string(),
+  code:   z.string(),
+  newPin: z.string().regex(/^\d{4}$/),
+});
+
+const DuressPinSchema = z.object({
+  currentPin: z.string().regex(/^\d{4}$/),
+  duressPin:  z.string().regex(/^\d{4}$/),
 });
 
 export default async function authRoutes(fastify) {
@@ -54,7 +72,8 @@ export default async function authRoutes(fastify) {
     // Upsert user
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) {
-      user = await prisma.user.create({ data: { phone, fullName: fullName ?? 'User', pinHash: '' } });
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      user = await prisma.user.create({ data: { phone, fullName: fullName ?? 'User', pinHash: '', trialEndsAt } });
       await prisma.activityLog.create({
         data: { userId: user.id, type: 'registration', title: 'Account created', actor: 'System', metadata: {} },
       });
@@ -89,13 +108,80 @@ export default async function authRoutes(fastify) {
     return { token, message: 'PIN set successfully' };
   });
 
+  // POST /auth/forgot-pin — send an OTP to reset a forgotten PIN
+  fastify.post('/forgot-pin', {
+    config: { rateLimit: { max: 5, timeWindow: '15m' } },
+  }, async (req, reply) => {
+    const body = ForgotPinSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    const { phone } = body.data;
+
+    const user = await prisma.user.findUnique({ where: { phone } });
+    if (!user || user.status !== 'active') return reply.status(404).send({ error: 'No matching account found' });
+
+    await SMSService.sendOTP(phone);
+    return { message: 'OTP sent', phone };
+  });
+
+  // POST /auth/reset-pin — OTP proves phone possession, same bar as login.
+  // Always clears any duress PIN rather than letting the reset screen touch
+  // it directly — there is no UI path here that can reveal which PIN is real.
+  fastify.post('/reset-pin', {
+    config: { rateLimit: { max: 10, timeWindow: '15m' } },
+  }, async (req, reply) => {
+    const body = ResetPinSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    const { phone, code, newPin } = body.data;
+
+    const user = await prisma.user.findUnique({ where: { phone } });
+    if (!user || user.status !== 'active') return reply.status(404).send({ error: 'No matching account found' });
+
+    const ok = await SMSService.verifyOTP(phone, code);
+    if (!ok) return reply.status(400).send({ error: 'Invalid or expired code', code: 'OTP_INVALID' });
+
+    const pinHash = await hashPIN(user.id, newPin);
+    await prisma.user.update({ where: { id: user.id }, data: { pinHash, duressPinHash: null } });
+    await redis.del(`pin_attempts:${user.id}`);
+    await prisma.activityLog.create({
+      data: { userId: user.id, type: 'pin_reset', title: 'PIN reset', actor: 'You', metadata: {} },
+    });
+
+    const token = fastify.jwt.sign({ sub: user.id }, { expiresIn: '24h' });
+    return { token, userId: user.id, message: 'PIN reset successfully' };
+  });
+
+  // PATCH /auth/duress-pin — set/change ONLY the duress PIN. Requires the
+  // real personal PIN (not the duress one) to authorize the change, and
+  // never touches pinHash.
+  fastify.patch('/duress-pin', { preHandler: fastify.authenticate }, async (req, reply) => {
+    const body = DuressPinSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    const { currentPin, duressPin } = body.data;
+
+    if (pinsAreEqual(currentPin, duressPin)) {
+      return reply.status(400).send({ error: 'Duress PIN must differ from personal PIN', code: 'PIN_MATCH' });
+    }
+
+    const userId = req.user.sub;
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { pinHash: true, duressPinHash: true } });
+    const { valid, isDuress } = await verifyPIN(userId, currentPin, user.pinHash, user.duressPinHash);
+    if (!valid || isDuress) return reply.status(401).send({ error: 'Incorrect PIN', code: 'PIN_WRONG' });
+
+    const duressPinHash = await hashPIN(userId, duressPin);
+    await prisma.user.update({ where: { id: userId }, data: { duressPinHash } });
+    await prisma.activityLog.create({
+      data: { userId, type: 'duress_pin_set', title: 'Duress PIN set', actor: 'You', metadata: {} },
+    });
+    return { message: 'Duress PIN set successfully' };
+  });
+
   // POST /auth/login
   fastify.post('/login', {
     config: { rateLimit: { max: 10, timeWindow: '15m' } },
   }, async (req, reply) => {
     const body = LoginSchema.safeParse(req.body);
     if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
-    const { phone, pin } = body.data;
+    const { phone, pin, lat, lng } = body.data;
 
     const user = await prisma.user.findUnique({ where: { phone } });
     if (!user || user.status !== 'active') {
@@ -106,7 +192,7 @@ export default async function authRoutes(fastify) {
     const attemptsKey = `pin_attempts:${user.id}`;
     const attempts = parseInt(await redis.get(attemptsKey) ?? '0', 10);
     if (attempts >= 10) {
-      return reply.status(429).send({ error: 'Account locked — too many PIN attempts. Reset via email.', code: 'PIN_LOCKED' });
+      return reply.status(429).send({ error: 'Account locked — too many PIN attempts. Use "Forgot PIN?" to reset.', code: 'PIN_LOCKED' });
     }
 
     const { valid, isDuress } = await verifyPIN(user.id, pin, user.pinHash, user.duressPinHash);
@@ -120,9 +206,11 @@ export default async function authRoutes(fastify) {
     await redis.del(attemptsKey);
 
     if (isDuress) {
-      // Silently trigger duress alert — import lazily to avoid circular
+      // Silently trigger duress alert — import lazily to avoid circular.
+      // lat/lng were captured client-side on every login attempt symmetrically
+      // (duress or not), so this carries a real fix instead of always null.
       import('../services/AlertService.js').then(({ triggerDuress }) => {
-        triggerDuress({ userId: user.id, lat: null, lng: null }).catch(() => {});
+        triggerDuress({ userId: user.id, lat: lat ?? null, lng: lng ?? null }).catch(() => {});
       });
     }
 
@@ -138,8 +226,10 @@ export default async function authRoutes(fastify) {
       select: {
         id: true, fullName: true, phone: true, email: true,
         verifiedAt: true, createdAt: true, region: true,
+        username: true, university: true, bio: true, avatarUrl: true, interests: true, discoverable: true,
+        lastLat: true, lastLng: true, lastLocatedAt: true, dateOfBirth: true,
       },
     });
-    return user;
+    return { ...user, isMinor: isMinor(user.dateOfBirth) };
   });
 }

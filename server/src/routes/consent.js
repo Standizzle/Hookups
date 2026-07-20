@@ -2,6 +2,8 @@ import { prisma } from '../db/client.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { verifyPIN } from '../services/PINService.js';
 import { createConsentRequest, confirmConsent, revokeConsent } from '../services/ConsentService.js';
+import { getActiveRelationship } from '../services/RelationshipGateService.js';
+import { buildRecordPDF, buildRecordsCSV } from '../services/ExportService.js';
 import { triggerDuress } from '../services/AlertService.js';
 import { z } from 'zod';
 
@@ -10,8 +12,11 @@ const RequestSchema = z.object({
   method:          z.enum(['nfc', 'airdrop', 'qr', 'manual']),
   expiresInMinutes: z.number().min(5).max(1440).default(60),
   terms: z.object({
-    physicalIntimacy: z.boolean().default(false),
-    kissingAffection: z.boolean().default(false),
+    holdingHandsHugging:   z.boolean().default(false),
+    kissingAffection:      z.boolean().default(false),
+    touchingAboveClothing: z.boolean().default(false),
+    touchingUnderClothing: z.boolean().default(false),
+    sexualIntimacy:        z.boolean().default(false),
     photosVideo:      z.boolean().default(false),
     overnightStays:   z.boolean().default(false),
     safeWord:         z.string().max(50).default(''),
@@ -27,6 +32,8 @@ const RequestSchema = z.object({
 const ConfirmSchema = z.object({
   pin:             z.string().regex(/^\d{4}$/),
   agreedToLocation: z.boolean().default(false),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
 });
 
 const RevokeSchema = z.object({
@@ -41,11 +48,19 @@ export default async function consentRoutes(fastify) {
     const body = RequestSchema.safeParse(req.body);
     if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
 
-    const record = await createConsentRequest({
-      requesterId: req.userId,
-      ...body.data,
-      ipA: req.ip,
-    });
+    let record;
+    try {
+      record = await createConsentRequest({
+        requesterId: req.userId,
+        ...body.data,
+        ipA: req.ip,
+      });
+    } catch (err) {
+      if (err.code === 'SUBSCRIPTION_REQUIRED') {
+        return reply.status(402).send({ error: 'Your trial has ended — subscribe to keep recording consent.', code: err.code });
+      }
+      throw err;
+    }
 
     return reply.status(201).send({
       id:       record.id,
@@ -67,6 +82,15 @@ export default async function consentRoutes(fastify) {
     if (record.status !== 'pending') return reply.status(409).send({ error: 'Consent is no longer pending', status: record.status });
     if (new Date() > record.expiresAt) return reply.status(410).send({ error: 'Consent request expired' });
 
+    // Third parties are always told about a Public Relationship before PIN entry.
+    const requesterRel = await getActiveRelationship(record.requesterId);
+    let relationshipDisclosure = null;
+    if (requesterRel && requesterRel.isPublic) {
+      const partnerId = requesterRel.userAId === record.requesterId ? requesterRel.userBId : requesterRel.userAId;
+      const partner = await prisma.user.findUnique({ where: { id: partnerId }, select: { fullName: true } });
+      relationshipDisclosure = { inRelationshipWith: partner.fullName };
+    }
+
     return {
       id:       record.id,
       recordId: record.recordId,
@@ -74,14 +98,18 @@ export default async function consentRoutes(fastify) {
         id:       record.requester.id,
         name:     record.requester.fullName,
         verified: !!record.requester.verifiedAt,
+        relationship: relationshipDisclosure,
       },
       terms: {
-        physicalIntimacy: record.physicalIntimacy,
-        kissingAffection: record.kissingAffection,
+        holdingHandsHugging:   record.holdingHandsHugging,
+        kissingAffection:      record.kissingAffection,
+        touchingAboveClothing: record.touchingAboveClothing,
+        touchingUnderClothing: record.touchingUnderClothing,
+        sexualIntimacy:        record.sexualIntimacy,
         photosVideo:      record.photosVideo,
         overnightStays:   record.overnightStays,
         safeWord:         record.safeWord,
-        locationSharing:  record.locationSharing,
+        locationSharing:  record.locationRequested,
       },
       method:    record.method,
       expiresAt: record.expiresAt,
@@ -105,15 +133,36 @@ export default async function consentRoutes(fastify) {
     }
 
     if (isDuress) {
-      triggerDuress({ userId: req.userId, lat: null, lng: null }).catch(() => {});
+      // lat/lng captured client-side on every confirm attempt symmetrically
+      // (duress or not) — carries a real fix instead of always null.
+      triggerDuress({ userId: req.userId, lat: body.data.lat ?? null, lng: body.data.lng ?? null }).catch(() => {});
     }
 
-    const record = await confirmConsent({
-      recordId:        req.params.id,
-      userId:          req.userId,
-      agreedToLocation: body.data.agreedToLocation,
-      ipB:             req.ip,
-    });
+    let record;
+    try {
+      record = await confirmConsent({
+        recordId:        req.params.id,
+        userId:          req.userId,
+        agreedToLocation: body.data.agreedToLocation,
+        ipB:             req.ip,
+      });
+    } catch (err) {
+      if (err.code === 'SUBSCRIPTION_REQUIRED') {
+        return reply.status(402).send({ error: 'Your trial has ended — subscribe to keep recording consent.', code: err.code });
+      }
+      const GATE_MESSAGES = {
+        NO_PARENTAL_LINK: "You need a linked parent/guardian to confirm this.",
+        LEVEL_BLOCKED:    "This exceeds what's permitted for your account.",
+        OVERRIDE_DENIED:  'Your parent declined this request.',
+        OVERRIDE_PENDING: "This needs your parent's approval — they've been notified.",
+        RELATIONSHIP_OVERRIDE_PENDING: "This needs your Relationship Partner's approval — they've been notified.",
+        RELATIONSHIP_OVERRIDE_DENIED:  'Your Relationship Partner declined this request.',
+      };
+      if (err.code && GATE_MESSAGES[err.code]) {
+        return reply.status(403).send({ error: GATE_MESSAGES[err.code], code: err.code });
+      }
+      throw err;
+    }
 
     return {
       status:    record.status,
@@ -135,6 +184,57 @@ export default async function consentRoutes(fastify) {
 
     const record = await revokeConsent({ recordId: req.params.id, userId: req.userId, reason: body.data.reason });
     return { status: record.status, revokedAt: record.revokedAt };
+  });
+
+  async function loadOwnedRecord(req, reply) {
+    const record = await prisma.consentRecord.findUnique({
+      where: { id: req.params.id },
+      include: {
+        requester: { select: { id: true, fullName: true } },
+        consenter: { select: { id: true, fullName: true } },
+      },
+    });
+    if (!record) { reply.status(404).send({ error: 'Consent record not found' }); return null; }
+    if (record.requesterId !== req.userId && record.consenterId !== req.userId) {
+      reply.status(403).send({ error: 'Not your record' });
+      return null;
+    }
+    return record;
+  }
+
+  // GET /consent/:id/record — full record detail for either party, any status
+  fastify.get('/:id/record', { preHandler: authenticate }, async (req, reply) => {
+    const record = await loadOwnedRecord(req, reply);
+    if (!record) return;
+    return record;
+  });
+
+  // GET /consent/:id/export/pdf — single-record certificate
+  fastify.get('/:id/export/pdf', { preHandler: authenticate }, async (req, reply) => {
+    const record = await loadOwnedRecord(req, reply);
+    if (!record) return;
+
+    const doc = buildRecordPDF(record, { requesterName: record.requester.fullName, consenterName: record.consenter.fullName });
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', `attachment; filename="${record.recordId}.pdf"`);
+    return reply.send(doc);
+  });
+
+  // GET /consent/export/csv — bulk export of all of the caller's records
+  fastify.get('/export/csv', { preHandler: authenticate }, async (req, reply) => {
+    const records = await prisma.consentRecord.findMany({
+      where: { OR: [{ requesterId: req.userId }, { consenterId: req.userId }] },
+      orderBy: { startedAt: 'desc' },
+      include: {
+        requester: { select: { id: true, fullName: true } },
+        consenter: { select: { id: true, fullName: true } },
+      },
+    });
+
+    const csv = buildRecordsCSV(records);
+    reply.header('Content-Type', 'text/csv');
+    reply.header('Content-Disposition', 'attachment; filename="hookups-consent-records.csv"');
+    return csv;
   });
 
   // GET /consent  — list user's records

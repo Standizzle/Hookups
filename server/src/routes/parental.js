@@ -19,6 +19,13 @@ export default async function parentalRoutes(fastify) {
     if (!minor) return reply.status(404).send({ error: 'User not found' });
     if (minor.id === req.userId) return reply.status(400).send({ error: 'Cannot link to yourself' });
 
+    const existing = await prisma.parentalLink.findUnique({
+      where: { parentId_minorId: { parentId: req.userId, minorId: minor.id } },
+    });
+    if (existing) {
+      return reply.status(409).send({ error: `A link with this account is already ${existing.status}`, status: existing.status });
+    }
+
     const link = await prisma.parentalLink.create({
       data: { parentId: req.userId, minorId: minor.id, status: 'pending' },
     });
@@ -49,16 +56,72 @@ export default async function parentalRoutes(fastify) {
   });
 
   fastify.get('/my-links', { preHandler: authenticate }, async (req) => {
+    // Include pending links too — a minor needs to see & accept a request
+    // that hasn't been actioned yet, not just already-active ones.
     const [asParent, asMinor] = await Promise.all([
       prisma.parentalLink.findMany({
-        where: { parentId: req.userId, status: 'active' },
+        where: { parentId: req.userId, status: { in: ['pending', 'active'] } },
         include: { minor: { select: { id: true, fullName: true, phone: true } } },
+        orderBy: { createdAt: 'desc' },
       }),
       prisma.parentalLink.findMany({
-        where: { minorId: req.userId, status: 'active' },
+        where: { minorId: req.userId, status: { in: ['pending', 'active'] } },
         include: { parent: { select: { id: true, fullName: true, phone: true } } },
+        orderBy: { createdAt: 'desc' },
       }),
     ]);
     return { asParent, asMinor };
+  });
+
+  // Pending Level-3 override requests awaiting this parent's decision
+  fastify.get('/overrides', { preHandler: authenticate }, async (req) => {
+    const overrides = await prisma.parentalOverride.findMany({
+      where: { status: 'pending', parentalLink: { parentId: req.userId } },
+      include: {
+        parentalLink: { include: { minor: { select: { id: true, fullName: true } } } },
+        consentRecord: { include: { requester: { select: { id: true, fullName: true } } } },
+      },
+      orderBy: { requestedAt: 'desc' },
+    });
+    return overrides.map((o) => ({
+      id: o.id,
+      requestedLevel: o.requestedLevel,
+      requestedAt: o.requestedAt,
+      minor: o.parentalLink.minor,
+      requester: o.consentRecord.requester,
+      recordId: o.consentRecord.recordId,
+    }));
+  });
+
+  fastify.post('/overrides/:id/approve', { preHandler: authenticate }, async (req, reply) => {
+    const override = await prisma.parentalOverride.findUnique({
+      where: { id: req.params.id }, include: { parentalLink: true },
+    });
+    if (!override || override.parentalLink.parentId !== req.userId) return reply.status(404).send({ error: 'Not found' });
+    if (override.status !== 'pending') return reply.status(409).send({ error: 'Already decided' });
+
+    const updated = await prisma.parentalOverride.update({
+      where: { id: req.params.id }, data: { status: 'approved', respondedAt: new Date() },
+    });
+    await prisma.activityLog.create({
+      data: { userId: override.parentalLink.minorId, type: 'override_approved', title: 'Parent approved your request', actor: 'Parent', metadata: {} },
+    });
+    return updated;
+  });
+
+  fastify.post('/overrides/:id/deny', { preHandler: authenticate }, async (req, reply) => {
+    const override = await prisma.parentalOverride.findUnique({
+      where: { id: req.params.id }, include: { parentalLink: true },
+    });
+    if (!override || override.parentalLink.parentId !== req.userId) return reply.status(404).send({ error: 'Not found' });
+    if (override.status !== 'pending') return reply.status(409).send({ error: 'Already decided' });
+
+    const updated = await prisma.parentalOverride.update({
+      where: { id: req.params.id }, data: { status: 'denied', respondedAt: new Date() },
+    });
+    await prisma.activityLog.create({
+      data: { userId: override.parentalLink.minorId, type: 'override_denied', title: 'Parent declined your request', actor: 'Parent', metadata: {} },
+    });
+    return updated;
   });
 }

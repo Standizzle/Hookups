@@ -1,16 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
+import { discoverService } from '../../services/discover.js';
 
 const NAV = ['/home', '/consent', '/discover', '/logs', '/profile'];
-
-const POOL = [
-  { id: '1', name: 'Ayesha P.', avatar: '👩🏽', age: 21, uni: 'UCT', interests: ['Yoga', 'Coffee', 'Travel'], compatibility: 88, why: ['3 mutual interests', 'Same campus', 'Both verified'] },
-  { id: '2', name: 'Luca F.', avatar: '👨🏻', age: 23, uni: 'CPUT', interests: ['Music', 'Gaming', 'Art'], compatibility: 74, why: ['2 mutual interests', 'Very active user'] },
-  { id: '3', name: 'Nandi B.', avatar: '👩🏿', age: 20, uni: 'UWC', interests: ['Dance', 'Food', 'Fashion'], compatibility: 81, why: ['3 mutual interests', 'Highly rated'] },
-  { id: '4', name: 'Marco T.', avatar: '👨🏽', age: 22, uni: 'Stellenbosch', interests: ['Surf', 'Photography', 'Hiking'], compatibility: 69, why: ['Nearby location', '1 mutual friend'] },
-];
 
 function ScoreRing({ value }) {
   const color = value >= 85 ? 'var(--sealed)' : value >= 70 ? 'var(--accent)' : 'var(--accent2)';
@@ -38,30 +33,64 @@ export function SuggestionsScreen() {
   const navigate = useNavigate();
   const nav = (i) => navigate(NAV[i]);
 
-  const [index, setIndex] = useState(0);
+  const [pool, setPool] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [sent, setSent] = useState([]);
   const [skipped, setSkipped] = useState([]);
   const [sending, setSending] = useState(false);
 
-  const remaining = POOL.filter((p) => !sent.includes(p.id) && !skipped.includes(p.id));
-  const current = remaining[index % Math.max(1, remaining.length)];
+  useEffect(() => {
+    (async () => {
+      try {
+        setPool(await discoverService.nearby());
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  function skip() {
+  const remaining = pool.filter((p) => !sent.includes(p.id) && !skipped.includes(p.id));
+  const current = remaining[0];
+
+  async function skip() {
     if (!current) return;
-    setSkipped((prev) => [...prev, current.id]);
-    setIndex(0);
+    try {
+      await discoverService.action(current.id, 'skip');
+      setSkipped((prev) => [...prev, current.id]);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function connect() {
     if (!current) return;
     setSending(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setSent((prev) => [...prev, current.id]);
-    setSending(false);
-    setIndex(0);
+    try {
+      await discoverService.action(current.id, 'connect');
+      setSent((prev) => [...prev, current.id]);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSending(false);
+    }
   }
 
-  if (remaining.length === 0) {
+  if (loading) {
+    return (
+      <div className="phone-inner">
+        <StatusBar />
+        <div className="screen" style={{ padding: '24px', textAlign: 'center', paddingTop: 60 }}>
+          <p className="t-body">Loading suggestions…</p>
+        </div>
+        <NavBar active={2} onTab={nav} />
+      </div>
+    );
+  }
+
+  if (!current) {
     return (
       <div className="phone-inner">
         <StatusBar />
@@ -71,22 +100,20 @@ export function SuggestionsScreen() {
           <p className="t-body" style={{ marginBottom: 24 }}>
             You've reviewed all suggestions. Check back later or browse Lookups.
           </p>
+          {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 16 }}>{error}</p>}
           {sent.length > 0 && (
             <div className="card" style={{ marginBottom: 20, textAlign: 'left' }}>
               <p className="t-label" style={{ marginBottom: 10 }}>Connection requests sent</p>
-              {POOL.filter((p) => sent.includes(p.id)).map((p) => (
+              {pool.filter((p) => sent.includes(p.id)).map((p) => (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <span style={{ fontSize: 20 }}>{p.avatar}</span>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
+                  <Avatar avatarUrl={p.avatarUrl} seed={p.id} label={p.handle} size={28} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{p.handle}</span>
                   <span className="pill pill-sealed" style={{ marginLeft: 'auto', fontSize: 10 }}>Sent</span>
                 </div>
               ))}
             </div>
           )}
-          <button className="btn btn-primary" onClick={() => { setSkipped([]); setIndex(0); }}>
-            Start over
-          </button>
-          <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => navigate('/lookups')}>
+          <button className="btn btn-ghost" onClick={() => navigate('/lookups')}>
             Browse Lookups
           </button>
         </div>
@@ -104,19 +131,15 @@ export function SuggestionsScreen() {
           <span className="t-small">{remaining.length} left</span>
         </div>
 
+        {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+
         {/* Hero card */}
         <div className="card" style={{ marginBottom: 16, border: '1px solid rgba(56,189,248,0.25)', background: 'var(--bg2)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-            <div style={{
-              width: 72, height: 72, borderRadius: '50%', fontSize: 36,
-              background: 'var(--bg)', border: '2px solid var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              {current.avatar}
-            </div>
+            <Avatar avatarUrl={current.avatarUrl} seed={current.id} label={current.handle} size={72} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 2 }}>{current.name}</div>
-              <div style={{ fontSize: 13, color: 'var(--ink2)' }}>{current.age} · {current.uni}</div>
+              <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 2 }}>{current.handle}</div>
+              <div style={{ fontSize: 13, color: 'var(--ink2)' }}>{current.university ?? 'No university set'}</div>
             </div>
             <ScoreRing value={current.compatibility} />
           </div>
@@ -129,7 +152,7 @@ export function SuggestionsScreen() {
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
             <p className="t-label" style={{ marginBottom: 8 }}>Why we suggest them</p>
-            {current.why.map((w) => (
+            {current.reasons.map((w) => (
               <div key={w} style={{ fontSize: 13, color: 'var(--ink2)', marginBottom: 4 }}>✓ {w}</div>
             ))}
           </div>

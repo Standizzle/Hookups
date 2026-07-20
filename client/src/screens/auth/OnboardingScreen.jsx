@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { PinPad } from '../../components/consent/PinPad.jsx';
 import { authService } from '../../services/auth.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const STEPS = ['name', 'phone', 'otp', 'pin', 'duress', 'done'];
 
 export function OnboardingScreen() {
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
   const [step,    setStep]    = useState('name');
   const [name,    setName]    = useState('');
   const [phone,   setPhone]   = useState('');
@@ -58,6 +60,7 @@ export function OnboardingScreen() {
     setLoading(true);
     try {
       await authService.setPIN({ pin, duressPin: pinValue });
+      await refreshUser();
       goNext();
     } catch (err) {
       reset();
@@ -71,6 +74,7 @@ export function OnboardingScreen() {
     setLoading(true);
     try {
       await authService.setPIN({ pin });
+      await refreshUser();
       goNext();
     } catch (err) {
       setError(err.message);
@@ -156,7 +160,7 @@ export function OnboardingScreen() {
             <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
             <div className="t-h2" style={{ marginBottom: 8 }}>You're all set, {name.split(' ')[0]}!</div>
             <p className="t-body" style={{ marginBottom: 32 }}>Your account is ready. Start by verifying your age to unlock all features.</p>
-            <button className="btn btn-primary" onClick={() => navigate('/home')}>Let's go</button>
+            <button className="btn btn-primary" onClick={() => navigate('/agegate')}>Let's go</button>
           </div>
         )}
 

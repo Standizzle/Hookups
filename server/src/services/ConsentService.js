@@ -1,5 +1,9 @@
 import { prisma } from '../db/client.js';
 import { signRecord, canonicalConsentJSON, sha256, hashIP } from './CryptoService.js';
+import { checkParentalGate, notifyParentOfActiveLocationSharing } from './ParentalGateService.js';
+import { checkRelationshipGate, notifyPartnerOfEncounter } from './RelationshipGateService.js';
+import { checkSubscriptionGate } from './BillingService.js';
+import { computeRequestedLevel } from '../utils/parentalLevel.js';
 
 function generateRecordId() {
   const now = new Date();
@@ -9,6 +13,13 @@ function generateRecordId() {
 }
 
 export async function createConsentRequest({ requesterId, consenterId, terms, method, expiresInMinutes = 60, location, ipA }) {
+  const requesterGate = await checkSubscriptionGate(requesterId);
+  if (!requesterGate.allowed) {
+    const err = new Error('An active subscription (or trial) is required to request consent');
+    err.code = requesterGate.reason;
+    throw err;
+  }
+
   const now      = new Date();
   const expiresAt = new Date(now.getTime() + expiresInMinutes * 60_000);
 
@@ -25,11 +36,15 @@ export async function createConsentRequest({ requesterId, consenterId, terms, me
       lat:             location?.lat,
       lng:             location?.lng,
       placeName:       location?.placeName,
-      physicalIntimacy: terms.physicalIntimacy ?? false,
-      kissingAffection: terms.kissingAffection ?? false,
+      holdingHandsHugging:   terms.holdingHandsHugging ?? false,
+      kissingAffection:      terms.kissingAffection ?? false,
+      touchingAboveClothing: terms.touchingAboveClothing ?? false,
+      touchingUnderClothing: terms.touchingUnderClothing ?? false,
+      sexualIntimacy:        terms.sexualIntimacy ?? false,
       photosVideo:      terms.photosVideo ?? false,
       overnightStays:   terms.overnightStays ?? false,
       safeWord:         terms.safeWord ?? '',
+      locationRequested: terms.locationSharing ?? false,
       locationSharing:  false, // only true when BOTH confirm it
     },
   });
@@ -43,6 +58,42 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
   if (record.status !== 'pending') throw new Error('Record is not pending');
   if (record.consenterId !== userId) throw new Error('Wrong user');
   if (new Date() > record.expiresAt) throw new Error('Consent request expired');
+
+  const consenterGate = await checkSubscriptionGate(userId);
+  if (!consenterGate.allowed) {
+    const err = new Error('An active subscription (or trial) is required to confirm consent');
+    err.code = consenterGate.reason;
+    throw err;
+  }
+
+  const requestedLevel = computeRequestedLevel(record);
+  const gate = await checkParentalGate({
+    userId, requestedLevel, consentRecordId: record.id, requesterId: record.requesterId,
+  });
+  if (!gate.allowed) {
+    const err = new Error('Blocked by parental controls');
+    err.code = gate.reason;
+    throw err;
+  }
+
+  // Hall Pass mode: either party's Relationship Partner may need to approve
+  // an encounter with someone off their pre-approved list before it can seal.
+  const consenterRelGate = await checkRelationshipGate({
+    userId: record.consenterId, counterpartyId: record.requesterId, consentRecordId: record.id,
+  });
+  if (!consenterRelGate.allowed) {
+    const err = new Error('Blocked by Relationship Hall Pass');
+    err.code = consenterRelGate.reason;
+    throw err;
+  }
+  const requesterRelGate = await checkRelationshipGate({
+    userId: record.requesterId, counterpartyId: record.consenterId, consentRecordId: record.id,
+  });
+  if (!requesterRelGate.allowed) {
+    const err = new Error("Blocked by your partner's Relationship Hall Pass");
+    err.code = requesterRelGate.reason;
+    throw err;
+  }
 
   // Find previous record between this pair for chain hash
   const prev = await prisma.consentRecord.findFirst({
@@ -64,7 +115,7 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
     data: {
       status:         'mutual',
       confirmedAt:    now,
-      locationSharing: agreedToLocation ?? false,
+      locationSharing: record.locationRequested && (agreedToLocation ?? false),
       ipHashB:        ipB ? hashIP(ipB) : null,
       chainPrev:      prev?.chainHash ?? null,
     },
@@ -72,7 +123,7 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
 
   // Sign the record
   const canonical  = canonicalConsentJSON(updated);
-  const signature  = signRecord(canonical);
+  const signature  = await signRecord(canonical);
   const chainHash  = sha256(canonical + (updated.chainPrev ?? ''));
 
   const signed = await prisma.consentRecord.update({
@@ -88,6 +139,10 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
     ],
   });
 
+  // Notify transparency mode: read-only heads-up to either party's Relationship Partner
+  await notifyPartnerOfEncounter({ userId: record.requesterId, counterpartyId: record.consenterId, consentRecordId: record.id }).catch(() => {});
+  await notifyPartnerOfEncounter({ userId: record.consenterId, counterpartyId: record.requesterId, consentRecordId: record.id }).catch(() => {});
+
   // Open location shares if both agreed
   if (signed.locationSharing) {
     await prisma.locationShare.createMany({
@@ -96,6 +151,13 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
         { recordId: record.id, userId: record.consenterId },
       ],
     });
+
+    // Level 3+ auto-adds a linked parent as a location recipient
+    if (requestedLevel >= 3) {
+      await notifyParentOfActiveLocationSharing({
+        recordId: record.id, requesterId: record.requesterId, consenterId: record.consenterId,
+      }).catch(() => {});
+    }
   }
 
   return signed;

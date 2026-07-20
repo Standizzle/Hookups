@@ -10,13 +10,14 @@
 
 | File | What it is |
 |---|---|
-| **`Hookups App.html`** | The hi-fi clickable prototype (PRIMARY DELIVERABLE). All flows live here. |
-| `Hookups Wireframes v2.html` | Earlier wireframe exploration. Deprecated — refer to App.html only. |
-| `Hookups Wireframes.html` | Even earlier wireframe. Deprecated. |
-| `consent-screen-new.jsx`, `new-screens.jsx`, `safety-screens.jsx`, `parental-screens.jsx` | Sidecar build files used during splicing. Their content is already inlined into `Hookups App.html` — do not load them directly. Keep for reference only. |
-| `tweaks-panel.jsx`, `design-canvas.jsx`, `ios-frame.jsx` | Starter components. `tweaks-panel.jsx` is still loaded by App.html. |
+| **`client/`** + **`server/`** | **The real app (PRIMARY DELIVERABLE).** React 18 + Vite client, Fastify + Prisma + PostgreSQL + Redis server. All active development happens here — see "Real app architecture" below. |
+| `Hookups App.html` | The original hi-fi clickable prototype. Superseded by `client/`+`server/` as the actively-developed product, but still useful as a design/flow reference — every screen and flow it defined has since been rebuilt for real in `client/`. |
+| `Hookups Wireframes v2.html`, `Hookups Wireframes.html` | Earlier wireframe exploration. Deprecated. |
+| `consent-screen-new.jsx`, `new-screens.jsx`, `safety-screens.jsx`, `parental-screens.jsx`, `tweaks-panel.jsx`, `design-canvas.jsx`, `ios-frame.jsx` | Sidecar/starter files from the prototype era. Not used by `client/`+`server/`. Keep for reference only. |
+| `PRD.md` | Product requirements doc for the real app. |
+| `docker-compose.yml` | Local Postgres/Redis for `server/`. |
 
-**When the user asks for changes, edit `Hookups App.html`.** It's the single source of truth.
+**When the user asks for changes, edit the real app in `client/` and `server/`.** That's the single source of truth now — do not edit `Hookups App.html` for feature work; it's a historical reference only.
 
 ---
 
@@ -67,18 +68,22 @@ The original green palette has been replaced with a **teal + pink** system. Do n
 
 ---
 
-## Architecture inside Hookups App.html
+## Real app architecture (`client/` + `server/`)
 
-- React 18 + Babel-standalone (no build step)
-- All screens are function components inside `<script type="text/babel">`
-- App shell uses `screen` state + `nav(s)` to swap top-level screens
-- A picker bar below the phone bezel lets the user jump to any screen for demo/testing
-- **Global activity log:** `window.__hookupsLog` (with `useActivityLog()` hook and `logActivity()` helper) — every PIN confirmation, link, relationship seal, parental setup, duress PIN config pushes a new entry that the Logs screen displays in real time
-- **Demo PIN: `1234`** — entered on the consent flow as the consenter
+- **Monorepo, npm workspaces**: `client/`, `server/`, `shared/`. `npm run dev` at the repo root boots both concurrently.
+- **Client**: React 18 + Vite + react-router-dom. Screens under `client/src/screens/`, one file per screen, mapped in `client/src/main.jsx`. `AgeGatedRoute` (`<AG>` in main.jsx) enforces the age-gate at the route level, not just in the UI.
+- **Server**: Fastify + Prisma + PostgreSQL + Redis. Routes under `server/src/routes/`, one file per resource, registered with a prefix in `server/index.js`. Services (business logic, kept out of route handlers) under `server/src/services/`.
+- **PIN hashing**: bcrypt, per-user-salted (`PINService.js`). `verifyPIN()` checks both the personal and duress hash and returns `{valid, isDuress}` — **`isDuress` must never be returned to the client or leak into any response**, by design (non-negotiable principle 5).
+- **Consent record integrity**: ed25519-signed + hash-chained (`CryptoService.js`) — real AWS KMS (KeySpec `ECC_NIST_EDWARDS25519`) when `AWS_KMS_KEY_ID` is set, ephemeral in-process keypair otherwise (won't verify across restarts in dev, that's expected). `signRecord`/`verifyRecord` are async either way.
+- **Migrations**: `server/prisma/schema.prisma` + `server/prisma/migrations/`. In sandboxes where `prisma migrate dev` can't run interactively, use `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script` to generate the SQL, hand-create a timestamped migration folder, then `prisma migrate deploy`.
+- **File uploads**: `StorageService.js` — local disk in dev (`server/uploads/`, served via `@fastify/static`), swappable for S3/R2 via `AVATAR_STORAGE` env var. Avatar + gallery photos are resized/re-encoded to webp via `sharp`.
+- **Billing/subscriptions**: `BillingService.js` — real Stripe Checkout when `STRIPE_SECRET_KEY` is set, instant local activation otherwise (same dev-stub-vs-real pattern as SMS/Storage/Crypto). `checkSubscriptionGate()` mirrors `checkParentalGate`/`checkRelationshipGate` and is enforced in `ConsentService.js` for both the requester and consenter, surfaced as HTTP 402 `SUBSCRIPTION_REQUIRED`. Family child count is derived from active `ParentalLink` rows, not tracked separately.
+- **Tests**: `server/test/*.test.js` via Node's built-in `node:test` (no extra dependency) — pure-logic unit tests (PIN hashing, record signing, parental level mapping, age calc). CI (`.github/workflows/ci.yml`) also runs a real Postgres+Redis integration smoke test of the golden path (signup → OTP → PIN → login → consent request → confirm).
+- **Demo PIN: `1234`** — used across every test account created via the onboarding flow.
 
 ---
 
-## Key flows (all live in Hookups App.html)
+## Key flows (real, in `client/`+`server/` — originally prototyped in Hookups App.html)
 
 | Screen | What it does |
 |---|---|
@@ -171,16 +176,24 @@ At Level 3+, parent is automatically added as a location recipient when the mino
 
 ---
 
-## Current state (as of May 2026)
+## Current state (as of July 2026)
 
-- ✅ Hi-fi prototype complete and clickable
-- ✅ All major flows wired up
-- ✅ Live activity logging working
-- ✅ Dark mode + Tweaks panel functional
-- ✅ Live location sharing screen (`livemap`) added
+The hi-fi HTML prototype is done and was the design reference; the real app in `client/`+`server/` has since implemented every flow it defined, for real, end-to-end (real Postgres/Redis, real Fastify routes, real Prisma schema — not mocked):
+
+- ✅ Auth: signup/OTP/PIN, login, forgot-PIN recovery flow (OTP-gated, silently clears any duress PIN on reset), duress PIN (separate, correctly-scoped endpoint — never touches the real PIN)
+- ✅ Age gate + parental controls: DOB persistence, minor route-gating, Levels 1–5 taxonomy enforced server-side at consent request *and* confirm, per-incident override requests/approvals
+- ✅ Consent flow: request/disclosure/confirm/revoke, PIN-sealed, ed25519-signed + hash-chained records, real-time polling for override/approval resolution
+- ✅ Relationship system: Linked Partner / Relationship Partner / Public Relationship tiers, Private/Notify/Hall Pass transparency modes, Hall Pass off-list gating with partner approval
+- ✅ Discovery/matching/meetups: handle-based pre-match privacy, real matching, meetup propose/confirm/cancel
+- ✅ Photo uploads: single avatar + a capped (6) photo gallery, shown on Discovery profiles
+- ✅ Live location sharing: real Socket.io + Redis relay, duress and Level-3+ auto-share overrides
+- ✅ Guardian/Trusted Circle alerts, real Notifications center aggregating every pending actionable item
+- ✅ PDF/CSV export of consent records (legal-evidence-style certificate + bulk CSV)
+- ✅ CI: GitHub Actions with a unit-test suite and a real Postgres+Redis integration smoke test of the golden path
 - ✅ Brand identity locked: teal + pink palette, D1 logo mark, wordmark, slogan
-- 🔧 Next step: apply teal + pink palette to `Hookups App.html` (replace all green variables)
-- 🔧 Pending: legal review (POPIA + UK Online Safety Act + GDPR), identity verification vendor pick, backend architecture decisions
+- ✅ Production signing: real AWS KMS integration wired (`AWS_KMS_KEY_ID` env var) — code-complete, just needs an actual KMS key provisioned in AWS to go live
+- ✅ Monetization: subscription billing is the paywall in front of the core consent mechanism — 14-day trial from signup, then Individual ($4.99/mo) or Family ($9.99/mo base + $1.99/mo per extra guardian + $2.99/mo per extra child, capped at $19.99/mo flat) required to request or confirm consent. Stripe Checkout in real mode (`STRIPE_SECRET_KEY`), instant dev-mode activation otherwise. `BillingScreen` + `ProfileScreen` indicator + `ConsentScreen` paywall block on the client.
+- 🔧 Pending (not code — business/legal decisions): legal review (POPIA + UK Online Safety Act + GDPR), identity verification vendor pick (Onfido/Veriff — currently a dev stub), multi-region backend decision, App Store geo-blocking, live Stripe account + price IDs
 
 ---
 
@@ -199,14 +212,15 @@ At Level 3+, parent is automatically added as a location recipient when the mino
 
 ## When the user opens a new chat
 
-The user has been iterating on this for weeks. Greet them briefly, confirm you've read this brief, and ask what they'd like to do next. Do NOT re-explain features they already know about. Do NOT suggest starting over. Always edit `Hookups App.html` directly unless they ask you to fork a new file.
+The user has been iterating on this for weeks. Greet them briefly, confirm you've read this brief, and ask what they'd like to do next. Do NOT re-explain features they already know about. Do NOT suggest starting over. Edit the real app in `client/`+`server/` unless they explicitly ask you to touch the old `Hookups App.html` prototype.
 
 **Common asks:**
-- Apply the teal + pink palette to the prototype
-- Add or refine a flow
-- Generate a PRD for developer handoff
-- Add a screen to the picker
-- Polish dark mode / animations / copy
-- Export the prototype as PDF or standalone HTML
+- Add or refine a flow in the real app
+- Fix a bug found while testing
+- Build out a remaining gap (see "Pending" above)
+- Set up/verify local dev (Postgres+Redis via `docker-compose.yml`, `npm run dev` at the repo root)
+- Generate a PRD update for developer handoff
+
+**Verification standard for this codebase:** every feature in this session's history was built end-to-end against real Postgres/Redis and verified with either Playwright or direct API calls — not just typechecked. Keep doing that; it has repeatedly caught real bugs (e.g. a bodyless-POST content-type bug, a DuressScreen bug that silently overwrote the real login PIN, a PDF checkmark-glyph rendering bug) that a typecheck alone would have missed.
 
 If the user asks for the demo PIN, it's **`1234`**.

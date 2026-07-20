@@ -9,8 +9,8 @@ export const consentService = {
     return api.get(`/consent/${consentId}`);
   },
 
-  async confirm(consentId, { pin, agreedToLocation }) {
-    return api.post(`/consent/${consentId}/confirm`, { pin, agreedToLocation });
+  async confirm(consentId, { pin, agreedToLocation, lat, lng }) {
+    return api.post(`/consent/${consentId}/confirm`, { pin, agreedToLocation, lat, lng });
   },
 
   async revoke(consentId, { pin, reason }) {
@@ -23,5 +23,17 @@ export const consentService = {
     if (limit)  params.set('limit', limit);
     if (offset) params.set('offset', offset);
     return api.get(`/consent?${params}`);
+  },
+
+  async getRecord(id) {
+    return api.get(`/consent/${id}/record`);
+  },
+
+  async downloadPdf(id, filename) {
+    return api.download(`/consent/${id}/export/pdf`, filename);
+  },
+
+  async downloadAllCsv() {
+    return api.download('/consent/export/csv', 'hookups-consent-records.csv');
   },
 };

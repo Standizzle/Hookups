@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+client/dist
+server/uploads/*
+!server/uploads/.gitkeep
+.git
+.env
+.env.local
+*.log
+.claude
+Hookups App.html
+Hookups Wireframes*.html

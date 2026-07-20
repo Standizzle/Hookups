@@ -1,45 +1,112 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatusBar } from '../../components/layout/StatusBar.jsx';
 import { NavBar } from '../../components/layout/NavBar.jsx';
 import { PinPad } from '../../components/consent/PinPad.jsx';
+import { Avatar } from '../../components/common/Avatar.jsx';
+import { meetupsService } from '../../services/meetups.js';
+import { discoverService } from '../../services/discover.js';
 
 const NAV = ['/home', '/consent', '/discover', '/logs', '/profile'];
-
-const MOCK_MEETUPS = [
-  { id: 'mu1', partner: 'Lerato M.', avatar: '👩🏾', place: 'UCT Upper Campus', time: 'Sat 12 Jul · 7pm', status: 'confirmed' },
-  { id: 'mu2', partner: 'Kagiso D.', avatar: '👨🏾', place: 'Kalk Bay Harbour', time: 'Sun 13 Jul · 2pm', status: 'pending' },
-];
-
-const PARTNERS = [
-  { id: 'p1', name: 'Lerato M.', avatar: '👩🏾' },
-  { id: 'p2', name: 'Kagiso D.', avatar: '👨🏾' },
-  { id: 'p3', name: 'Zara N.', avatar: '👩🏽' },
-];
 
 const PLACES = [
   'UCT Upper Campus', 'Kalk Bay Harbour', 'V&A Waterfront', 'Stellenbosch Wine Estate',
   'Sea Point Promenade', 'Truth Coffee, CBD',
 ];
 
+function fmtTime(iso) {
+  return new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 export function MeetupsScreen() {
   const navigate = useNavigate();
   const nav = (i) => navigate(NAV[i]);
 
-  const [step, setStep] = useState('list'); // list | propose-partner | propose-place | propose-time | pin | done
+  const [step, setStep] = useState('list'); // list | propose-partner | propose-place | propose-time | done | confirm-pin
+  const [meetups, setMeetups] = useState([]);
+  const [matchedPartners, setMatchedPartners] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
   const [partner, setPartner] = useState(null);
   const [place, setPlace] = useState('');
   const [customPlace, setCustomPlace] = useState('');
   const [datetime, setDatetime] = useState('');
-  const [pinError, setPinError] = useState('');
+  const [proposing, setProposing] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState(null);
+  const [cancelingId, setCancelingId] = useState(null);
+  const [confirmCancelId, setConfirmCancelId] = useState(null);
 
-  function handlePIN(pin, reset, setErr) {
-    if (pin === '1234') {
-      setStep('done');
-    } else {
-      reset();
-      setErr('Incorrect PIN. Try again.');
+  async function loadMeetups() {
+    setLoading(true);
+    try {
+      setMeetups(await meetupsService.list());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => { loadMeetups(); }, []);
+
+  async function openProposeFlow() {
+    setError('');
+    try {
+      const matches = await discoverService.matches();
+      setMatchedPartners(matches.filter((m) => m.status === 'matched').map((m) => m.partner));
+      setStep('propose-partner');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submitProposal() {
+    setProposing(true);
+    setError('');
+    try {
+      await meetupsService.propose({ partnerId: partner.id, place: place || customPlace, scheduledAt: new Date(datetime).toISOString() });
+      setStep('done');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProposing(false);
+    }
+  }
+
+  async function handleConfirmPIN(pin, reset, setPinError) {
+    try {
+      await meetupsService.confirm(confirmTarget.id, pin);
+      setConfirmTarget(null);
+      setStep('list');
+      await loadMeetups();
+    } catch (err) {
+      reset();
+      setPinError(err.message ?? 'Incorrect PIN');
+    }
+  }
+
+  async function cancelMeetup(id) {
+    setCancelingId(id);
+    setError('');
+    try {
+      await meetupsService.cancel(id);
+      setConfirmCancelId(null);
+      await loadMeetups();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCancelingId(null);
+    }
+  }
+
+  function backToList() {
+    setStep('list');
+    setPartner(null);
+    setPlace('');
+    setCustomPlace('');
+    setDatetime('');
+    loadMeetups();
   }
 
   if (step === 'done') {
@@ -54,11 +121,28 @@ export function MeetupsScreen() {
           </p>
           <div className="card" style={{ marginBottom: 24, textAlign: 'left' }}>
             <div style={{ fontWeight: 700, marginBottom: 4 }}>{place || customPlace}</div>
-            <p className="t-small">{datetime}</p>
+            <p className="t-small">{fmtTime(datetime)}</p>
           </div>
-          <button className="btn btn-primary" onClick={() => { setStep('list'); setPartner(null); setPlace(''); setDatetime(''); }}>
+          <button className="btn btn-primary" onClick={backToList}>
             Back to meetups
           </button>
+        </div>
+        <NavBar active={2} onTab={nav} />
+      </div>
+    );
+  }
+
+  if (step === 'confirm-pin' && confirmTarget) {
+    return (
+      <div className="phone-inner">
+        <StatusBar />
+        <div className="screen" style={{ padding: '24px' }}>
+          <button className="btn btn-ghost btn-sm" style={{ width: 'auto', marginBottom: 20 }} onClick={() => { setConfirmTarget(null); setStep('list'); }}>← Back</button>
+          <div className="t-h2" style={{ marginBottom: 8 }}>Confirm meetup</div>
+          <p className="t-body" style={{ marginBottom: 20 }}>
+            With <strong style={{ color: 'var(--ink)' }}>{confirmTarget.partner.fullName}</strong> at {confirmTarget.place}, {fmtTime(confirmTarget.scheduledAt)}. Entering your PIN confirms you'll be there.
+          </p>
+          <PinPad onComplete={handleConfirmPIN} label="Enter your PIN to confirm" />
         </div>
         <NavBar active={2} onTab={nav} />
       </div>
@@ -74,34 +158,71 @@ export function MeetupsScreen() {
           <div className="anim-fade-up">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
               <div className="t-h2">Meetups</div>
-              <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} onClick={() => setStep('propose-partner')}>
+              <button className="btn btn-primary btn-sm" style={{ width: 'auto' }} onClick={openProposeFlow}>
                 + Propose
               </button>
             </div>
 
-            {MOCK_MEETUPS.map((m) => (
+            {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+            {loading && <p className="t-body" style={{ textAlign: 'center', marginTop: 20 }}>Loading…</p>}
+
+            {!loading && meetups.map((m) => (
               <div key={m.id} className="card" style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: '50%', fontSize: 20,
-                    background: 'var(--bg)', border: '1.5px solid var(--border2)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {m.avatar}
-                  </div>
+                  <Avatar avatarUrl={m.partner.avatarUrl} seed={m.partner.id} label={m.partner.fullName} size={40} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>with {m.partner}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>with {m.partner.fullName}</div>
                     <div style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 2 }}>📍 {m.place}</div>
-                    <div style={{ fontSize: 12, color: 'var(--ink3)' }}>🕐 {m.time}</div>
+                    <div style={{ fontSize: 12, color: 'var(--ink3)' }}>🕐 {fmtTime(m.scheduledAt)}</div>
                   </div>
-                  <span className={`pill ${m.status === 'confirmed' ? 'pill-sealed' : 'pill-pending'}`}>
-                    {m.status === 'confirmed' ? '✓ Confirmed' : '⏳ Pending'}
+                  <span className={`pill ${m.status === 'confirmed' ? 'pill-sealed' : m.status === 'cancelled' ? 'pill-revoked' : 'pill-pending'}`}>
+                    {m.status === 'confirmed' ? '✓ Confirmed' : m.status === 'cancelled' ? 'Cancelled' : '⏳ Pending'}
                   </span>
                 </div>
+                {m.status === 'pending' && !m.isProposer && (
+                  <button className="btn btn-primary btn-sm" style={{ marginTop: 12 }} onClick={() => { setConfirmTarget(m); setStep('confirm-pin'); }}>
+                    Confirm with PIN →
+                  </button>
+                )}
+                {m.status === 'pending' && m.isProposer && (
+                  <p className="t-small" style={{ marginTop: 10 }}>Waiting for {m.partner.fullName} to confirm…</p>
+                )}
+
+                {(m.status === 'pending' || m.status === 'confirmed') && (
+                  confirmCancelId === m.id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                      <span className="t-small" style={{ flex: 1 }}>Cancel this meetup?</span>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ width: 'auto' }}
+                        onClick={() => setConfirmCancelId(null)}
+                        disabled={cancelingId === m.id}
+                      >
+                        No
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ width: 'auto', background: 'var(--red)', color: '#fff' }}
+                        onClick={() => cancelMeetup(m.id)}
+                        disabled={cancelingId === m.id}
+                      >
+                        {cancelingId === m.id ? 'Cancelling…' : 'Yes, cancel'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ marginTop: 12, color: 'var(--red)' }}
+                      onClick={() => setConfirmCancelId(m.id)}
+                    >
+                      Cancel meetup
+                    </button>
+                  )
+                )}
               </div>
             ))}
 
-            {MOCK_MEETUPS.length === 0 && (
+            {!loading && meetups.length === 0 && (
               <p className="t-body" style={{ textAlign: 'center', marginTop: 40 }}>No meetups yet. Propose one!</p>
             )}
           </div>
@@ -111,8 +232,8 @@ export function MeetupsScreen() {
           <div className="anim-fade-up">
             <button className="btn btn-ghost btn-sm" style={{ width: 'auto', marginBottom: 20 }} onClick={() => setStep('list')}>← Back</button>
             <div className="t-h2" style={{ marginBottom: 8 }}>Who's the meetup with?</div>
-            <p className="t-body" style={{ marginBottom: 20 }}>Choose from your connected partners.</p>
-            {PARTNERS.map((p) => (
+            <p className="t-body" style={{ marginBottom: 20 }}>Choose from your matched connections.</p>
+            {matchedPartners.map((p) => (
               <button
                 key={p.id}
                 className="card"
@@ -120,11 +241,16 @@ export function MeetupsScreen() {
                 onClick={() => { setPartner(p); setStep('propose-place'); }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 24 }}>{p.avatar}</span>
+                  <Avatar avatarUrl={p.avatarUrl} seed={p.id} label={p.name} size={40} />
                   <span style={{ fontWeight: 700 }}>{p.name}</span>
                 </div>
               </button>
             ))}
+            {matchedPartners.length === 0 && (
+              <p className="t-body" style={{ textAlign: 'center', marginTop: 20 }}>
+                You don't have any mutual matches yet — head to Matchups to connect with someone first.
+              </p>
+            )}
           </div>
         )}
 
@@ -162,7 +288,7 @@ export function MeetupsScreen() {
           <div className="anim-fade-up">
             <button className="btn btn-ghost btn-sm" style={{ width: 'auto', marginBottom: 20 }} onClick={() => setStep('propose-place')}>← Back</button>
             <div className="t-h2" style={{ marginBottom: 8 }}>When?</div>
-            <p className="t-body" style={{ marginBottom: 16 }}>Your partner will need to confirm.</p>
+            <p className="t-body" style={{ marginBottom: 16 }}>Your partner will need to confirm with their PIN.</p>
             <input
               className="input-field"
               type="datetime-local"
@@ -175,19 +301,12 @@ export function MeetupsScreen() {
               <p className="t-label" style={{ marginBottom: 8 }}>Summary</p>
               <div style={{ fontSize: 13, marginBottom: 4 }}>👤 With: <strong>{partner?.name}</strong></div>
               <div style={{ fontSize: 13, marginBottom: 4 }}>📍 At: <strong>{place || customPlace}</strong></div>
-              {datetime && <div style={{ fontSize: 13 }}>🕐 When: <strong>{new Date(datetime).toLocaleString()}</strong></div>}
+              {datetime && <div style={{ fontSize: 13 }}>🕐 When: <strong>{fmtTime(datetime)}</strong></div>}
             </div>
-            <button className="btn btn-primary" onClick={() => setStep('pin')} disabled={!datetime}>
-              Confirm with PIN →
+            {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+            <button className="btn btn-primary" onClick={submitProposal} disabled={!datetime || proposing}>
+              {proposing ? 'Sending…' : 'Propose meetup →'}
             </button>
-          </div>
-        )}
-
-        {step === 'pin' && (
-          <div className="anim-fade-up">
-            <div className="t-h2" style={{ marginBottom: 8 }}>Confirm with your PIN</div>
-            <p className="t-body" style={{ marginBottom: 20 }}>This records your intent to meet. You can cancel up to 1h before.</p>
-            <PinPad onComplete={handlePIN} label="Enter your PIN" />
           </div>
         )}
 
