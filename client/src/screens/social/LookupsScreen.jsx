@@ -77,6 +77,16 @@ export function LookupsScreen() {
             {selected.bio && <p className="t-body" style={{ marginTop: 10 }}>{selected.bio}</p>}
           </div>
 
+          {selected.photos?.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+              {selected.photos.map((url) => (
+                <div key={url} style={{ aspectRatio: '4/5', borderRadius: 'var(--r-md)', overflow: 'hidden', border: '1px solid var(--border2)' }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="card" style={{ marginBottom: 12 }}>
             <p className="t-label" style={{ marginBottom: 10 }}>Interests</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>

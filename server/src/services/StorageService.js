@@ -1,4 +1,4 @@
-import { writeFile, unlink } from 'node:fs/promises';
+import { writeFile, unlink, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -26,6 +26,7 @@ export const StorageService = {
     assertLocalDriver();
     const filename = `${randomUUID()}.${ext}`;
     const dir = path.join(UPLOAD_ROOT, subdir);
+    await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, filename), buffer);
     return `${PUBLIC_PREFIX}/${subdir}/${filename}`;
   },

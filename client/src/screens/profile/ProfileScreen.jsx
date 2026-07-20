@@ -32,6 +32,49 @@ export function ProfileScreen() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? null);
 
+  const galleryInputRef = useRef(null);
+  const [photos, setPhotos] = useState([]);
+  const [galleryUploading, setGalleryUploading] = useState(false);
+  const [galleryError, setGalleryError] = useState('');
+  const GALLERY_MAX = 6;
+
+  async function loadPhotos() {
+    try {
+      setPhotos(await usersService.listPhotos());
+    } catch { /* non-fatal */ }
+  }
+
+  useEffect(() => { loadPhotos(); }, []);
+
+  async function handlePhotoPick(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setGalleryUploading(true);
+    setGalleryError('');
+    try {
+      await usersService.uploadPhoto(file);
+      await loadPhotos();
+    } catch (err) {
+      setGalleryError(err.message);
+    } finally {
+      setGalleryUploading(false);
+      e.target.value = '';
+    }
+  }
+
+  async function removePhoto(id) {
+    setGalleryUploading(true);
+    setGalleryError('');
+    try {
+      await usersService.deletePhoto(id);
+      await loadPhotos();
+    } catch (err) {
+      setGalleryError(err.message);
+    } finally {
+      setGalleryUploading(false);
+    }
+  }
+
   const [partners, setPartners] = useState([]);
   const [partnerPhone, setPartnerPhone] = useState('');
   const [partnerBusy, setPartnerBusy] = useState(false);
@@ -366,6 +409,47 @@ export function ProfileScreen() {
           <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={saving}>
             {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save profile'}
           </button>
+        </div>
+
+        {/* Gallery — extra photos shown on your Discovery profile, separate from the avatar above */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <p className="t-label" style={{ marginBottom: 4 }}>Photos</p>
+          <p className="t-small" style={{ marginBottom: 12 }}>Shown to people viewing your Discovery profile. Up to {GALLERY_MAX}.</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            {photos.map((p) => (
+              <div key={p.id} style={{ position: 'relative', aspectRatio: '4/5', borderRadius: 'var(--r-md)', overflow: 'hidden', border: '1px solid var(--border2)' }}>
+                <img src={p.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                <button
+                  onClick={() => removePhoto(p.id)}
+                  disabled={galleryUploading}
+                  style={{
+                    position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%',
+                    background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            {photos.length < GALLERY_MAX && (
+              <button
+                onClick={() => galleryInputRef.current?.click()}
+                disabled={galleryUploading}
+                style={{
+                  aspectRatio: '4/5', borderRadius: 'var(--r-md)', border: '1px dashed var(--border2)',
+                  background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 24, color: 'var(--ink3)',
+                }}
+              >
+                {galleryUploading ? '…' : '+'}
+              </button>
+            )}
+          </div>
+          <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handlePhotoPick} />
+          {galleryError && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 8 }}>{galleryError}</p>}
         </div>
 
         {/* Linked Partners — saved contacts, faster Smart Connect, no consent obligations */}

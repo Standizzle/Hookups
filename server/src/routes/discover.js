@@ -57,6 +57,7 @@ export default async function discoverRoutes(fastify) {
         // No fullName here — pre-match, only the handle identifies you.
         id: true, username: true, university: true, bio: true, avatarUrl: true,
         interests: true, verifiedAt: true, lastLat: true, lastLng: true, dateOfBirth: true,
+        photos: { orderBy: { position: 'asc' }, select: { url: true } },
       },
       take: 50,
     });
@@ -73,6 +74,7 @@ export default async function discoverRoutes(fastify) {
         university: c.university,
         bio: c.bio,
         avatarUrl: c.avatarUrl,
+        photos: c.photos.map((p) => p.url),
         interests: c.interests,
         verified: !!c.verifiedAt,
         distanceKm,

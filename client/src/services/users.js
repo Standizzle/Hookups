@@ -24,4 +24,15 @@ export const usersService = {
   async deleteAvatar() {
     return api.delete('/users/me/avatar');
   },
+  async listPhotos() {
+    return api.get('/users/me/photos');
+  },
+  async uploadPhoto(file) {
+    const form = new FormData();
+    form.append('file', file);
+    return api.postForm('/users/me/photos', form);
+  },
+  async deletePhoto(id) {
+    return api.delete(`/users/me/photos/${id}`);
+  },
 };

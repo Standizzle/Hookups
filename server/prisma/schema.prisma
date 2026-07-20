@@ -49,8 +49,20 @@ model User {
   matchesReceived  Match[]  @relation("MatchTo")
   meetupsProposed  Meetup[] @relation("MeetupProposer")
   meetupsReceived  Meetup[] @relation("MeetupPartner")
+  photos           Photo[]
 
   @@map("users")
+}
+
+model Photo {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  url       String
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("photos")
 }
 
 model Match {

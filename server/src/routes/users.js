@@ -33,6 +33,7 @@ const PROFILE_SELECT = {
 
 const ACCEPTED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const MAX_GALLERY_PHOTOS = 6;
 
 export default async function userRoutes(fastify) {
 
@@ -156,6 +157,52 @@ export default async function userRoutes(fastify) {
     await prisma.user.update({ where: { id: req.userId }, data: { avatarUrl: null } });
     if (prev?.avatarUrl) await StorageService.remove(prev.avatarUrl);
     return { ok: true };
+  });
+
+  // Gallery — additional photos shown on your discovery profile, separate
+  // from the single circular avatar used everywhere else in the app.
+  fastify.get('/me/photos', { preHandler: authenticate }, async (req) => {
+    return prisma.photo.findMany({ where: { userId: req.userId }, orderBy: { position: 'asc' } });
+  });
+
+  fastify.post('/me/photos', { preHandler: authenticate }, async (req, reply) => {
+    const count = await prisma.photo.count({ where: { userId: req.userId } });
+    if (count >= MAX_GALLERY_PHOTOS) {
+      return reply.status(400).send({ error: `You can have up to ${MAX_GALLERY_PHOTOS} photos — remove one first`, code: 'GALLERY_FULL' });
+    }
+
+    const file = await req.file({ limits: { fileSize: MAX_AVATAR_BYTES } });
+    if (!file) return reply.status(400).send({ error: 'No file uploaded' });
+    if (!ACCEPTED_MIME.has(file.mimetype)) {
+      return reply.status(400).send({ error: 'Only JPEG, PNG, or WEBP images are accepted' });
+    }
+
+    const original = await file.toBuffer().catch(() => null);
+    if (!original) return reply.status(413).send({ error: 'File too large (max 5MB)' });
+
+    let resized;
+    try {
+      resized = await sharp(original)
+        .rotate()
+        .resize(1080, 1350, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toBuffer();
+    } catch {
+      return reply.status(400).send({ error: 'Could not process image' });
+    }
+
+    const url = await StorageService.save(resized, 'gallery', 'webp');
+    const photo = await prisma.photo.create({ data: { userId: req.userId, url, position: count } });
+    return reply.status(201).send(photo);
+  });
+
+  fastify.delete('/me/photos/:id', { preHandler: authenticate }, async (req, reply) => {
+    const photo = await prisma.photo.findUnique({ where: { id: req.params.id } });
+    if (!photo || photo.userId !== req.userId) return reply.status(404).send({ error: 'Not found' });
+
+    await prisma.photo.delete({ where: { id: req.params.id } });
+    await StorageService.remove(photo.url);
+    return reply.status(204).send();
   });
 
   // One-shot location capture for discovery (not continuous tracking)
