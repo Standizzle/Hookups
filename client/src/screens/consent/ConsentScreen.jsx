@@ -51,7 +51,7 @@ export function ConsentScreen() {
 
   const GATE_REASONS = [
     'NO_PARENTAL_LINK', 'LEVEL_BLOCKED', 'OVERRIDE_DENIED', 'OVERRIDE_PENDING',
-    'RELATIONSHIP_OVERRIDE_PENDING', 'RELATIONSHIP_OVERRIDE_DENIED',
+    'RELATIONSHIP_OVERRIDE_PENDING', 'RELATIONSHIP_OVERRIDE_DENIED', 'SUBSCRIPTION_REQUIRED',
   ];
   const PENDING_REASONS = ['OVERRIDE_PENDING', 'RELATIONSHIP_OVERRIDE_PENDING'];
 
@@ -138,7 +138,12 @@ export function ConsentScreen() {
       setDeeplink(data.deeplink);
       setStep('waiting');
     } catch (err) {
-      alert(err.message);
+      if (err.code === 'SUBSCRIPTION_REQUIRED') {
+        setBlockedReason(err.code);
+        setStep('blocked');
+      } else {
+        alert(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -401,7 +406,15 @@ export function ConsentScreen() {
         {/* STEP: Blocked by parental controls */}
         {step === 'blocked' && (
           <div className="anim-fade-up" style={{ textAlign: 'center', paddingTop: 32 }}>
-            {PENDING_REASONS.includes(blockedReason) ? (
+            {blockedReason === 'SUBSCRIPTION_REQUIRED' ? (
+              <>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+                <div className="t-h2" style={{ marginBottom: 8 }}>Your trial has ended</div>
+                <p className="t-body" style={{ marginBottom: 20 }}>
+                  Subscribe to keep recording consent — it's the safety net the app is built on.
+                </p>
+              </>
+            ) : PENDING_REASONS.includes(blockedReason) ? (
               <>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
                 <div className="t-h2" style={{ marginBottom: 8 }}>Waiting for approval</div>
@@ -429,9 +442,16 @@ export function ConsentScreen() {
                 </p>
               </>
             )}
-            <button className="btn btn-primary" onClick={() => navigate('/home')}>Back to home</button>
+            {blockedReason === 'SUBSCRIPTION_REQUIRED' ? (
+              <button className="btn btn-primary" onClick={() => navigate('/billing')}>See plans</button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => navigate('/home')}>Back to home</button>
+            )}
             {blockedReason === 'NO_PARENTAL_LINK' && (
               <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => navigate('/parental')}>Set up parental link</button>
+            )}
+            {blockedReason === 'SUBSCRIPTION_REQUIRED' && (
+              <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => navigate('/home')}>Back to home</button>
             )}
           </div>
         )}

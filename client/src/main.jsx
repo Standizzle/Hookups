@@ -23,6 +23,7 @@ const DuressScreen     = lazy(() => import('./screens/safety/DuressScreen.jsx').
 const RevokeScreen     = lazy(() => import('./screens/consent/RevokeScreen.jsx').then(m => ({ default: m.RevokeScreen })));
 const LiveMapScreen    = lazy(() => import('./screens/profile/LiveMapScreen.jsx').then(m => ({ default: m.LiveMapScreen })));
 const NotificationsScreen = lazy(() => import('./screens/NotificationsScreen.jsx').then(m => ({ default: m.NotificationsScreen })));
+const BillingScreen    = lazy(() => import('./screens/profile/BillingScreen.jsx').then(m => ({ default: m.BillingScreen })));
 
 function PhoneWrapper({ children }) {
   return (
@@ -98,6 +99,7 @@ function AppRoutes() {
         <Route path="/revoke/:id"   element={<P><RevokeScreen /></P>} />
         <Route path="/livemap/:id"  element={<P><LiveMapScreen /></P>} />
         <Route path="/notifs"       element={<P><NotificationsScreen /></P>} />
+        <Route path="/billing"      element={<P><BillingScreen /></P>} />
 
         {/* Safety */}
         <Route path="/guardian"     element={<P><GuardianScreen /></P>} />

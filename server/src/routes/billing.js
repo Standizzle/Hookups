@@ -25,6 +25,16 @@ export default async function billingRoutes(fastify) {
     if (plan.subscription?.plan === 'family') {
       breakdown = await getFamilyPriceBreakdown(plan.subscription);
     }
+
+    const guardianIds = plan.subscription?.guardians?.map((g) => g.userId) ?? [];
+    const guardianUsers = guardianIds.length
+      ? await prisma.user.findMany({ where: { id: { in: guardianIds } }, select: { id: true, fullName: true, phone: true } })
+      : [];
+    const guardianById = Object.fromEntries(guardianUsers.map((u) => [u.id, u]));
+    const owner = plan.subscription
+      ? await prisma.user.findUnique({ where: { id: plan.subscription.ownerId }, select: { id: true, fullName: true, phone: true } })
+      : null;
+
     return {
       covered: plan.covered,
       trialing: plan.trialing,
@@ -34,7 +44,8 @@ export default async function billingRoutes(fastify) {
       subscriptionId: plan.subscription?.id ?? null,
       status: plan.subscription?.status ?? null,
       isOwner: plan.subscription?.ownerId === req.userId,
-      guardians: plan.subscription?.guardians?.map((g) => ({ id: g.id, userId: g.userId })) ?? [],
+      owner,
+      guardians: plan.subscription?.guardians?.map((g) => ({ id: g.id, userId: g.userId, fullName: guardianById[g.userId]?.fullName, phone: guardianById[g.userId]?.phone })) ?? [],
       priceBreakdown: breakdown,
       prices: CENTS,
     };

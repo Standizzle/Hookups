@@ -8,6 +8,7 @@ import { PinPad } from '../../components/consent/PinPad.jsx';
 import { usersService } from '../../services/users.js';
 import { partnersService } from '../../services/partners.js';
 import { relationshipsService } from '../../services/relationships.js';
+import { billingService } from '../../services/billing.js';
 
 const ALL_INTERESTS = ['Art', 'Music', 'Tech', 'Sport', 'Hiking', 'Fashion', 'Food', 'Dance', 'Gaming', 'Yoga', 'Coffee', 'Travel'];
 
@@ -97,6 +98,11 @@ export function ProfileScreen() {
   }
 
   useEffect(() => { loadRelationshipData(); }, []);
+
+  const [billingStatus, setBillingStatus] = useState(null);
+  useEffect(() => {
+    billingService.status().then(setBillingStatus).catch(() => {});
+  }, []);
 
   async function requestPartner() {
     setPartnerBusy(true);
@@ -337,6 +343,20 @@ export function ProfileScreen() {
           <div className='t-h2' style={{ marginTop: 8 }}>{user?.fullName}</div>
           <p className='t-small'>{user?.phone}</p>
         </div>
+
+        {/* Plan & billing status */}
+        <button className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginBottom: 16, width: '100%', textAlign: 'left' }} onClick={() => navigate('/billing')}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>💳 Plan & Billing</div>
+            <span className="t-small">
+              {!billingStatus ? '…'
+                : billingStatus.status === 'active' ? (billingStatus.plan === 'family' ? 'Family plan' : 'Individual plan')
+                : billingStatus.trialing ? `Free trial — ${Math.max(0, Math.ceil((new Date(billingStatus.trialEndsAt) - new Date()) / 86400000))} days left`
+                : 'Trial ended — subscribe to keep recording consent'}
+            </span>
+          </div>
+          <span style={{ color: 'var(--ink3)' }}>›</span>
+        </button>
 
         {/* Discovery profile */}
         <div className="card" style={{ marginBottom: 16 }}>
