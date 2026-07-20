@@ -90,14 +90,14 @@ jobs:
         run: |
           node index.js > /tmp/server.log 2>&1 &
           for i in $(seq 1 30); do
-            curl -sf http://localhost:3001/auth/me -H "Authorization: Bearer x" > /dev/null 2>&1 && break
+            curl -sf http://localhost:3001/health > /dev/null 2>&1 && break
             sleep 1
           done
 
       - name: Smoke test — signup, PIN set, login, consent request + confirm
         run: |
           set -e
-          BASE=http://localhost:3001
+          BASE=http://localhost:3001/api
 
           # Onboard requester
           curl -sf -X POST $BASE/auth/signup -H 'Content-Type: application/json' \
