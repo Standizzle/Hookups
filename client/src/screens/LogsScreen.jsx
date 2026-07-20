@@ -101,8 +101,8 @@ export function LogsScreen() {
           <div
             key={l.id}
             className="card"
-            style={{ marginBottom: 10, cursor: l.status === 'sealed' && l.recordId ? 'pointer' : 'default' }}
-            onClick={() => l.status === 'sealed' && l.recordId && navigate(`/revoke/${l.recordId}`)}
+            style={{ marginBottom: 10, cursor: (l.status === 'sealed' || l.status === 'revoked') && l.recordId ? 'pointer' : 'default' }}
+            onClick={() => (l.status === 'sealed' || l.status === 'revoked') && l.recordId && navigate(`/revoke/${l.recordId}`)}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
               <div style={{
@@ -133,7 +133,7 @@ export function LogsScreen() {
                   </span>
                 </div>
               </div>
-              {l.status === 'sealed' && (
+              {(l.status === 'sealed' || l.status === 'revoked') && l.recordId && (
                 <span style={{ color: 'var(--ink3)', fontSize: 16, flexShrink: 0 }}>›</span>
               )}
             </div>

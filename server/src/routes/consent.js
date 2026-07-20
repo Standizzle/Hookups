@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { verifyPIN } from '../services/PINService.js';
 import { createConsentRequest, confirmConsent, revokeConsent } from '../services/ConsentService.js';
 import { getActiveRelationship } from '../services/RelationshipGateService.js';
+import { buildRecordPDF, buildRecordsCSV } from '../services/ExportService.js';
 import { triggerDuress } from '../services/AlertService.js';
 import { z } from 'zod';
 
@@ -172,6 +173,57 @@ export default async function consentRoutes(fastify) {
 
     const record = await revokeConsent({ recordId: req.params.id, userId: req.userId, reason: body.data.reason });
     return { status: record.status, revokedAt: record.revokedAt };
+  });
+
+  async function loadOwnedRecord(req, reply) {
+    const record = await prisma.consentRecord.findUnique({
+      where: { id: req.params.id },
+      include: {
+        requester: { select: { id: true, fullName: true } },
+        consenter: { select: { id: true, fullName: true } },
+      },
+    });
+    if (!record) { reply.status(404).send({ error: 'Consent record not found' }); return null; }
+    if (record.requesterId !== req.userId && record.consenterId !== req.userId) {
+      reply.status(403).send({ error: 'Not your record' });
+      return null;
+    }
+    return record;
+  }
+
+  // GET /consent/:id/record — full record detail for either party, any status
+  fastify.get('/:id/record', { preHandler: authenticate }, async (req, reply) => {
+    const record = await loadOwnedRecord(req, reply);
+    if (!record) return;
+    return record;
+  });
+
+  // GET /consent/:id/export/pdf — single-record certificate
+  fastify.get('/:id/export/pdf', { preHandler: authenticate }, async (req, reply) => {
+    const record = await loadOwnedRecord(req, reply);
+    if (!record) return;
+
+    const doc = buildRecordPDF(record, { requesterName: record.requester.fullName, consenterName: record.consenter.fullName });
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', `attachment; filename="${record.recordId}.pdf"`);
+    return reply.send(doc);
+  });
+
+  // GET /consent/export/csv — bulk export of all of the caller's records
+  fastify.get('/export/csv', { preHandler: authenticate }, async (req, reply) => {
+    const records = await prisma.consentRecord.findMany({
+      where: { OR: [{ requesterId: req.userId }, { consenterId: req.userId }] },
+      orderBy: { startedAt: 'desc' },
+      include: {
+        requester: { select: { id: true, fullName: true } },
+        consenter: { select: { id: true, fullName: true } },
+      },
+    });
+
+    const csv = buildRecordsCSV(records);
+    reply.header('Content-Type', 'text/csv');
+    reply.header('Content-Disposition', 'attachment; filename="hookups-consent-records.csv"');
+    return csv;
   });
 
   // GET /consent  — list user's records

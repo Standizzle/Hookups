@@ -24,4 +24,16 @@ export const consentService = {
     if (offset) params.set('offset', offset);
     return api.get(`/consent?${params}`);
   },
+
+  async getRecord(id) {
+    return api.get(`/consent/${id}/record`);
+  },
+
+  async downloadPdf(id, filename) {
+    return api.download(`/consent/${id}/export/pdf`, filename);
+  },
+
+  async downloadAllCsv() {
+    return api.download('/consent/export/csv', 'hookups-consent-records.csv');
+  },
 };
