@@ -108,7 +108,7 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
 
   // Sign the record
   const canonical  = canonicalConsentJSON(updated);
-  const signature  = signRecord(canonical);
+  const signature  = await signRecord(canonical);
   const chainHash  = sha256(canonical + (updated.chainPrev ?? ''));
 
   const signed = await prisma.consentRecord.update({

@@ -74,7 +74,7 @@ The original green palette has been replaced with a **teal + pink** system. Do n
 - **Client**: React 18 + Vite + react-router-dom. Screens under `client/src/screens/`, one file per screen, mapped in `client/src/main.jsx`. `AgeGatedRoute` (`<AG>` in main.jsx) enforces the age-gate at the route level, not just in the UI.
 - **Server**: Fastify + Prisma + PostgreSQL + Redis. Routes under `server/src/routes/`, one file per resource, registered with a prefix in `server/index.js`. Services (business logic, kept out of route handlers) under `server/src/services/`.
 - **PIN hashing**: bcrypt, per-user-salted (`PINService.js`). `verifyPIN()` checks both the personal and duress hash and returns `{valid, isDuress}` — **`isDuress` must never be returned to the client or leak into any response**, by design (non-negotiable principle 5).
-- **Consent record integrity**: ed25519-signed + hash-chained (`CryptoService.js`) — `CONSENT_SIGNING_KEY` env var in production, ephemeral dev keypair otherwise (won't verify across restarts in dev, that's expected).
+- **Consent record integrity**: ed25519-signed + hash-chained (`CryptoService.js`) — real AWS KMS (KeySpec `ECC_NIST_EDWARDS25519`) when `AWS_KMS_KEY_ID` is set, ephemeral in-process keypair otherwise (won't verify across restarts in dev, that's expected). `signRecord`/`verifyRecord` are async either way.
 - **Migrations**: `server/prisma/schema.prisma` + `server/prisma/migrations/`. In sandboxes where `prisma migrate dev` can't run interactively, use `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script` to generate the SQL, hand-create a timestamped migration folder, then `prisma migrate deploy`.
 - **File uploads**: `StorageService.js` — local disk in dev (`server/uploads/`, served via `@fastify/static`), swappable for S3/R2 via `AVATAR_STORAGE` env var. Avatar + gallery photos are resized/re-encoded to webp via `sharp`.
 - **Tests**: `server/test/*.test.js` via Node's built-in `node:test` (no extra dependency) — pure-logic unit tests (PIN hashing, record signing, parental level mapping, age calc). CI (`.github/workflows/ci.yml`) also runs a real Postgres+Redis integration smoke test of the golden path (signup → OTP → PIN → login → consent request → confirm).
@@ -190,7 +190,8 @@ The hi-fi HTML prototype is done and was the design reference; the real app in `
 - ✅ PDF/CSV export of consent records (legal-evidence-style certificate + bulk CSV)
 - ✅ CI: GitHub Actions with a unit-test suite and a real Postgres+Redis integration smoke test of the golden path
 - ✅ Brand identity locked: teal + pink palette, D1 logo mark, wordmark, slogan
-- 🔧 Pending (not code — business/legal decisions): legal review (POPIA + UK Online Safety Act + GDPR), identity verification vendor pick (Onfido/Veriff — currently a dev stub), production KMS/signing-key setup, multi-region backend decision, App Store geo-blocking
+- ✅ Production signing: real AWS KMS integration wired (`AWS_KMS_KEY_ID` env var) — code-complete, just needs an actual KMS key provisioned in AWS to go live
+- 🔧 Pending (not code — business/legal decisions): legal review (POPIA + UK Online Safety Act + GDPR), identity verification vendor pick (Onfido/Veriff — currently a dev stub), multi-region backend decision, App Store geo-blocking, monetization/pricing model + billing integration
 
 ---
 

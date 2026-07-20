@@ -22,11 +22,11 @@ test('hashIP salts consistently for the same input', () => {
   assert.equal(hashIP('1.2.3.4'), hashIP('1.2.3.4'));
 });
 
-test('signRecord + verifyRecord round-trip, and tamper detection', () => {
+test('signRecord + verifyRecord round-trip, and tamper detection', async () => {
   const canonical = canonicalConsentJSON(sampleRecord());
-  const sig = signRecord(canonical);
-  assert.equal(verifyRecord(canonical, sig), true);
-  assert.equal(verifyRecord(canonical + 'tampered', sig), false);
+  const sig = await signRecord(canonical);
+  assert.equal(await verifyRecord(canonical, sig), true);
+  assert.equal(await verifyRecord(canonical + 'tampered', sig), false);
 });
 
 test('canonicalConsentJSON is deterministic for an identical record', () => {
