@@ -21,6 +21,11 @@ model User {
   createdAt     DateTime  @default(now())
   deletedAt     DateTime?
 
+  // Billing — every account gets a 14-day trial from signup; after that,
+  // consent recording requires an active Subscription (owned or via a
+  // family plan's SubscriptionGuardian membership).
+  trialEndsAt   DateTime?
+
   // Discovery profile
   username      String?  @unique // Instagram-style handle, lowercase/numbers/underscore
   university    String?
@@ -50,8 +55,43 @@ model User {
   meetupsProposed  Meetup[] @relation("MeetupProposer")
   meetupsReceived  Meetup[] @relation("MeetupPartner")
   photos           Photo[]
+  subscription     Subscription?   @relation("SubscriptionOwner")
+  guardianOf       SubscriptionGuardian[]
 
   @@map("users")
+}
+
+model Subscription {
+  id                   String    @id @default(uuid())
+  ownerId              String    @unique
+  owner                User      @relation("SubscriptionOwner", fields: [ownerId], references: [id])
+  plan                 String    // individual | family
+  status               String    @default("active") // active | past_due | canceled
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime  @default(now())
+  canceledAt           DateTime?
+
+  guardians SubscriptionGuardian[]
+
+  @@map("subscriptions")
+}
+
+// Additional guardians on a family plan, beyond the owner (+$1.99/mo each).
+// Children covered by the plan are NOT tracked here — they're derived from
+// active ParentalLink rows for the owner + these guardians, deduped by minor,
+// so a child linked to both parents only ever counts once.
+model SubscriptionGuardian {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  addedAt        DateTime     @default(now())
+
+  @@unique([subscriptionId, userId])
+  @@map("subscription_guardians")
 }
 
 model Photo {

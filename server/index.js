@@ -20,6 +20,7 @@ import locationRoutes from './src/routes/location.js';
 import discoverRoutes from './src/routes/discover.js';
 import meetupRoutes from './src/routes/meetups.js';
 import relationshipRoutes from './src/routes/relationships.js';
+import billingRoutes from './src/routes/billing.js';
 import { registerLocationSocket } from './src/socket/locationHandler.js';
 
 const PORT = process.env.PORT || 3001;
@@ -79,6 +80,7 @@ await fastify.register(locationRoutes, { prefix: '/location' });
 await fastify.register(discoverRoutes, { prefix: '/discover' });
 await fastify.register(meetupRoutes,   { prefix: '/meetups' });
 await fastify.register(relationshipRoutes, { prefix: '/relationships' });
+await fastify.register(billingRoutes, { prefix: '/billing' });
 
 fastify.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }));
 

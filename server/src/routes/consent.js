@@ -48,11 +48,19 @@ export default async function consentRoutes(fastify) {
     const body = RequestSchema.safeParse(req.body);
     if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
 
-    const record = await createConsentRequest({
-      requesterId: req.userId,
-      ...body.data,
-      ipA: req.ip,
-    });
+    let record;
+    try {
+      record = await createConsentRequest({
+        requesterId: req.userId,
+        ...body.data,
+        ipA: req.ip,
+      });
+    } catch (err) {
+      if (err.code === 'SUBSCRIPTION_REQUIRED') {
+        return reply.status(402).send({ error: 'Your trial has ended — subscribe to keep recording consent.', code: err.code });
+      }
+      throw err;
+    }
 
     return reply.status(201).send({
       id:       record.id,
@@ -139,6 +147,9 @@ export default async function consentRoutes(fastify) {
         ipB:             req.ip,
       });
     } catch (err) {
+      if (err.code === 'SUBSCRIPTION_REQUIRED') {
+        return reply.status(402).send({ error: 'Your trial has ended — subscribe to keep recording consent.', code: err.code });
+      }
       const GATE_MESSAGES = {
         NO_PARENTAL_LINK: "You need a linked parent/guardian to confirm this.",
         LEVEL_BLOCKED:    "This exceeds what's permitted for your account.",

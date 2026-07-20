@@ -2,6 +2,7 @@ import { prisma } from '../db/client.js';
 import { signRecord, canonicalConsentJSON, sha256, hashIP } from './CryptoService.js';
 import { checkParentalGate, notifyParentOfActiveLocationSharing } from './ParentalGateService.js';
 import { checkRelationshipGate, notifyPartnerOfEncounter } from './RelationshipGateService.js';
+import { checkSubscriptionGate } from './BillingService.js';
 import { computeRequestedLevel } from '../utils/parentalLevel.js';
 
 function generateRecordId() {
@@ -12,6 +13,13 @@ function generateRecordId() {
 }
 
 export async function createConsentRequest({ requesterId, consenterId, terms, method, expiresInMinutes = 60, location, ipA }) {
+  const requesterGate = await checkSubscriptionGate(requesterId);
+  if (!requesterGate.allowed) {
+    const err = new Error('An active subscription (or trial) is required to request consent');
+    err.code = requesterGate.reason;
+    throw err;
+  }
+
   const now      = new Date();
   const expiresAt = new Date(now.getTime() + expiresInMinutes * 60_000);
 
@@ -50,6 +58,13 @@ export async function confirmConsent({ recordId, userId, agreedToLocation, ipB }
   if (record.status !== 'pending') throw new Error('Record is not pending');
   if (record.consenterId !== userId) throw new Error('Wrong user');
   if (new Date() > record.expiresAt) throw new Error('Consent request expired');
+
+  const consenterGate = await checkSubscriptionGate(userId);
+  if (!consenterGate.allowed) {
+    const err = new Error('An active subscription (or trial) is required to confirm consent');
+    err.code = consenterGate.reason;
+    throw err;
+  }
 
   const requestedLevel = computeRequestedLevel(record);
   const gate = await checkParentalGate({

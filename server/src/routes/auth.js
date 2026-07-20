@@ -72,7 +72,8 @@ export default async function authRoutes(fastify) {
     // Upsert user
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) {
-      user = await prisma.user.create({ data: { phone, fullName: fullName ?? 'User', pinHash: '' } });
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      user = await prisma.user.create({ data: { phone, fullName: fullName ?? 'User', pinHash: '', trialEndsAt } });
       await prisma.activityLog.create({
         data: { userId: user.id, type: 'registration', title: 'Account created', actor: 'System', metadata: {} },
       });
