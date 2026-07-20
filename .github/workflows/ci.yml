@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  build-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate (validates schema)
+        run: npx --workspace=server prisma generate
+
+      - name: Syntax-check all server source files
+        run: find server/src server/index.js -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Server unit tests
+        run: npm test --workspace=server
+
+      - name: Client production build
+        run: npm run build --workspace=client
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: build-and-unit
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hookups
+          POSTGRES_PASSWORD: hookups_dev
+          POSTGRES_DB: hookups
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hookups"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://hookups:hookups_dev@localhost:5432/hookups
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-test-secret-not-for-production
+      JWT_EXPIRES_IN: 24h
+      JWT_REFRESH_EXPIRES_IN: 30d
+      BCRYPT_ROUNDS: 4
+      PIN_SALT_PREFIX: ci_test_
+      PORT: 3001
+      CLIENT_ORIGIN: http://localhost:5173
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        working-directory: server
+        run: npx prisma migrate deploy
+
+      - name: Boot server
+        working-directory: server
+        run: |
+          node index.js > /tmp/server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/auth/me -H "Authorization: Bearer x" > /dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Smoke test — signup, PIN set, login, consent request + confirm
+        run: |
+          set -e
+          BASE=http://localhost:3001
+
+          # Onboard requester
+          curl -sf -X POST $BASE/auth/signup -H 'Content-Type: application/json' \
+            -d '{"phone":"+27831900001","fullName":"CI Requester"}' > /dev/null
+
+          TOKEN_A=$(curl -sf -X POST $BASE/auth/verify-otp -H 'Content-Type: application/json' \
+            -d '{"phone":"+27831900001","code":"123456","fullName":"CI Requester"}' | node -e "process.stdin.once('data', d => console.log(JSON.parse(d).token))")
+
+          curl -sf -X POST $BASE/auth/set-pin -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN_A" \
+            -d '{"pin":"1234"}' > /dev/null
+
+          # Onboard consenter
+          curl -sf -X POST $BASE/auth/signup -H 'Content-Type: application/json' \
+            -d '{"phone":"+27831900002","fullName":"CI Consenter"}' > /dev/null
+
+          TOKEN_B_PROVISIONAL=$(curl -sf -X POST $BASE/auth/verify-otp -H 'Content-Type: application/json' \
+            -d '{"phone":"+27831900002","code":"123456","fullName":"CI Consenter"}' | node -e "process.stdin.once('data', d => console.log(JSON.parse(d).token))")
+
+          B_ID=$(curl -sf -X POST $BASE/auth/verify-otp -H 'Content-Type: application/json' \
+            -d '{"phone":"+27831900002","code":"123456","fullName":"CI Consenter"}' | node -e "process.stdin.once('data', d => console.log(JSON.parse(d).userId))")
+
+          curl -sf -X POST $BASE/auth/set-pin -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN_B_PROVISIONAL" \
+            -d '{"pin":"1234"}' > /dev/null
+
+          # Real login for both (fresh tokens)
+          TOKEN_A=$(curl -sf -X POST $BASE/auth/login -H 'Content-Type: application/json' \
+            -d '{"phone":"+27831900001","pin":"1234"}' | node -e "process.stdin.once('data', d => console.log(JSON.parse(d).token))")
+          TOKEN_B=$(curl -sf -X POST $BASE/auth/login -H 'Content-Type: application/json' \
+            -d '{"phone":"+27831900002","pin":"1234"}' | node -e "process.stdin.once('data', d => console.log(JSON.parse(d).token))")
+
+          echo "Creating consent request..."
+          CONSENT_ID=$(curl -sf -X POST $BASE/consent/request -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN_A" \
+            -d "{\"consenterId\":\"$B_ID\",\"method\":\"manual\",\"terms\":{\"kissingAffection\":true},\"expiresInMinutes\":60}" \
+            | node -e "process.stdin.once('data', d => console.log(JSON.parse(d).id))")
+
+          echo "Confirming consent..."
+          STATUS=$(curl -sf -X POST $BASE/consent/$CONSENT_ID/confirm -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN_B" \
+            -d '{"pin":"1234","agreedToLocation":false}' | node -e "process.stdin.once('data', d => console.log(JSON.parse(d).status))")
+
+          if [ "$STATUS" != "mutual" ]; then
+            echo "FAILED: expected status 'mutual', got '$STATUS'"
+            cat /tmp/server.log
+            exit 1
+          fi
+          echo "Golden path OK: consent sealed successfully."
+
+      - name: Dump server log on failure
+        if: failure()
+        run: cat /tmp/server.log || true
