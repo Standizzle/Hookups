@@ -77,6 +77,7 @@ The original green palette has been replaced with a **teal + pink** system. Do n
 - **Consent record integrity**: ed25519-signed + hash-chained (`CryptoService.js`) — real AWS KMS (KeySpec `ECC_NIST_EDWARDS25519`) when `AWS_KMS_KEY_ID` is set, ephemeral in-process keypair otherwise (won't verify across restarts in dev, that's expected). `signRecord`/`verifyRecord` are async either way.
 - **Migrations**: `server/prisma/schema.prisma` + `server/prisma/migrations/`. In sandboxes where `prisma migrate dev` can't run interactively, use `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script` to generate the SQL, hand-create a timestamped migration folder, then `prisma migrate deploy`.
 - **File uploads**: `StorageService.js` — local disk in dev (`server/uploads/`, served via `@fastify/static`), swappable for S3/R2 via `AVATAR_STORAGE` env var. Avatar + gallery photos are resized/re-encoded to webp via `sharp`.
+- **Billing/subscriptions**: `BillingService.js` — real Stripe Checkout when `STRIPE_SECRET_KEY` is set, instant local activation otherwise (same dev-stub-vs-real pattern as SMS/Storage/Crypto). `checkSubscriptionGate()` mirrors `checkParentalGate`/`checkRelationshipGate` and is enforced in `ConsentService.js` for both the requester and consenter, surfaced as HTTP 402 `SUBSCRIPTION_REQUIRED`. Family child count is derived from active `ParentalLink` rows, not tracked separately.
 - **Tests**: `server/test/*.test.js` via Node's built-in `node:test` (no extra dependency) — pure-logic unit tests (PIN hashing, record signing, parental level mapping, age calc). CI (`.github/workflows/ci.yml`) also runs a real Postgres+Redis integration smoke test of the golden path (signup → OTP → PIN → login → consent request → confirm).
 - **Demo PIN: `1234`** — used across every test account created via the onboarding flow.
 
@@ -191,7 +192,8 @@ The hi-fi HTML prototype is done and was the design reference; the real app in `
 - ✅ CI: GitHub Actions with a unit-test suite and a real Postgres+Redis integration smoke test of the golden path
 - ✅ Brand identity locked: teal + pink palette, D1 logo mark, wordmark, slogan
 - ✅ Production signing: real AWS KMS integration wired (`AWS_KMS_KEY_ID` env var) — code-complete, just needs an actual KMS key provisioned in AWS to go live
-- 🔧 Pending (not code — business/legal decisions): legal review (POPIA + UK Online Safety Act + GDPR), identity verification vendor pick (Onfido/Veriff — currently a dev stub), multi-region backend decision, App Store geo-blocking, monetization/pricing model + billing integration
+- ✅ Monetization: subscription billing is the paywall in front of the core consent mechanism — 14-day trial from signup, then Individual ($4.99/mo) or Family ($9.99/mo base + $1.99/mo per extra guardian + $2.99/mo per extra child, capped at $19.99/mo flat) required to request or confirm consent. Stripe Checkout in real mode (`STRIPE_SECRET_KEY`), instant dev-mode activation otherwise. `BillingScreen` + `ProfileScreen` indicator + `ConsentScreen` paywall block on the client.
+- 🔧 Pending (not code — business/legal decisions): legal review (POPIA + UK Online Safety Act + GDPR), identity verification vendor pick (Onfido/Veriff — currently a dev stub), multi-region backend decision, App Store geo-blocking, live Stripe account + price IDs
 
 ---
 
